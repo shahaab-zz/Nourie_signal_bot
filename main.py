@@ -68,6 +68,7 @@ def check_entry_signal():
 
 if __name__ == "__main__":
     started = False
+    send_notification("✅ پیام تست: ربات با موفقیت اجرا شد.")  # پیام تست هنگام شروع
     while True:
         now = datetime.now(TZ).time()
 
