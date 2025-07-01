@@ -1,17 +1,15 @@
 import requests
 from datetime import datetime, time, date
 import pytz
-import os
 import time as t
 
 # تنظیمات
 SYMBOL = "نوری"
 TZ = pytz.timezone('Asia/Tehran')
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
 
-# وضعیت پیام شروع/پایان بازار
-last_start_day = None
+# اینجا توکن و چت آیدی تلگرام را مستقیم وارد کن
+BOT_TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
+CHAT_ID = "52909831"
 
 def send_notification(message):
     print(f"📤 {message}")
@@ -21,8 +19,8 @@ def send_notification(message):
             data={"chat_id": CHAT_ID, "text": message},
             timeout=5
         )
-    except:
-        print("❌ خطا در ارسال پیام تلگرام")
+    except Exception as e:
+        print(f"❌ خطا در ارسال پیام تلگرام: {e}")
 
 def is_market_open():
     now = datetime.now(TZ).time()
@@ -34,7 +32,7 @@ def get_sahamyab_data():
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=10)
         res.raise_for_status()
-        return res.text  # در صورت نیاز، تحلیل HTML اینجا انجام میشه
+        return res.text
     except Exception as e:
         send_notification(f"🚨 خطا در دریافت اطلاعات از sahamyab:\n{e}")
         return None
@@ -44,30 +42,25 @@ def check_entry_signal():
     if not html:
         return
 
-    # 👇 اینجا فعلاً فقط تست اتصال به سایت است
-    # در مرحله بعدی داده‌های دقیق را از HTML استخراج می‌کنیم
     print("✅ sahamyab page loaded successfully.")
-    # send_notification("📊 داده sahamyab با موفقیت دریافت شد.")
+    # اینجا میتونی کد پردازش html را اضافه کنی
 
 if __name__ == "__main__":
-    global last_start_day
+    last_start_day = None
 
     while True:
         now = datetime.now(TZ).time()
         today = date.today()
 
-        # پیام شروع بازار (فقط یک‌بار در روز)
         if now >= time(8, 59) and (last_start_day != today):
             if get_sahamyab_data():
                 send_notification("✅ اتصال به sahamyab موفق بود.")
             send_notification("🟢 من فعال شدم. (شروع بازار)")
             last_start_day = today
 
-        # بررسی سیگنال در ساعات بازار
         if is_market_open():
             check_entry_signal()
 
-        # پیام پایان بازار (فقط یک‌بار در روز)
         if now >= time(12, 31) and last_start_day == today:
             send_notification("🔴 من خاموش شدم. (پایان بازار)")
             last_start_day = None
