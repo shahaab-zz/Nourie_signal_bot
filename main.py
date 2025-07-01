@@ -1,115 +1,95 @@
 import requests
-from datetime import datetime, time
+import time
+import datetime
 import pytz
-import os
-import time as t
+from flask import Flask
+from threading import Thread
 
-# تنظیمات
-TZ = pytz.timezone('Asia/Tehran')
-BOT_TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
+TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
-SAHAMYAB_URL = "https://www.sahamyab.com/stock-info/nouri"
+SAHAM_YAB_URL = "https://www.sahamyab.com/quote/نوری"
 
-# وضعیت‌ها برای جلوگیری از تکرار
+tehran = pytz.timezone('Asia/Tehran')
+app = Flask(__name__)
+
 last_start_day = None
-market_started = False
-market_ended = False
-notified_sahamyab = False
+last_end_day = None
+last_signal_status = None
 
-
-def send_notification(message):
-    print(f"پیام ارسالی: {message}")
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    data = {"chat_id": CHAT_ID, "text": message}
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={"chat_id": CHAT_ID, "text": message},
-            timeout=5
-        )
+        requests.post(url, data=data)
     except:
-        print("❌ خطا در ارسال پیام تلگرام")
-
-
-def is_market_open():
-    now = datetime.now(TZ).time()
-    return time(9, 0) <= now <= time(12, 30)
-
+        pass
 
 def get_sahamyab_data():
     try:
-        res = requests.get(SAHAMYAB_URL, timeout=10)
-        res.raise_for_status()
-        if "نوری" in res.text:
-            return {
-                "finalVolume": 1000000,  # مقدار تستی
-                "avgVolume5Day": 800000,
-                "closingPrice": 4250,
-                "prevClosingPrice": 4200,
-                "buyLegalValue": 500000000,
-                "sellLegalValue": 300000000
-            }
-        else:
-            raise Exception("داده نوری در پاسخ یافت نشد.")
+        response = requests.get(SAHAM_YAB_URL, timeout=10)
+        response.raise_for_status()
+        if "نوری" in response.text:
+            return {"valid": True}
+        return {"valid": False}
     except Exception as e:
-        send_notification(f"🚨 خطا در دریافت داده از sahamyab:\n{e}")
-        return None
-
+        raise Exception(f"خطا در دریافت داده از سهام‌یاب: {e}")
 
 def check_entry_signal():
-    data = get_sahamyab_data()
-    if not data:
-        return False
-
     try:
-        final_volume = data.get('finalVolume', 0)
-        avg_volume_5d = data.get('avgVolume5Day', 1)
-        closing_price = data.get('closingPrice', 0)
-        yesterday_closing = data.get('prevClosingPrice', 0)
-        buy_legal = data.get('buyLegalValue', 0)
-        sell_legal = data.get('sellLegalValue', 0)
-
-        candle_positive = closing_price > yesterday_closing
-        volume_ok = final_volume > avg_volume_5d
-        legal_ok = (buy_legal - sell_legal) > 0
-        sell_queue_removed = closing_price > yesterday_closing
-
-        return all([candle_positive, volume_ok, legal_ok, sell_queue_removed])
-    except Exception as e:
-        send_notification(f"🚨 خطا در پردازش داده‌ها:\n{e}")
+        data = get_sahamyab_data()
+        return data.get("valid", False)
+    except:
         return False
 
+def is_market_open():
+    now = datetime.datetime.now(tehran)
+    if now.weekday() >= 5:
+        return False
+    return datetime.time(9, 0) <= now.time() <= datetime.time(12, 30)
 
-if __name__ == "__main__":
+def run_bot():
+    global last_start_day, last_end_day, last_signal_status
+
+    # تست اتصال sahamyab در لحظه شروع
+    try:
+        get_sahamyab_data()
+        send_telegram_message("✅ اتصال به sahamyab موفق بود.")
+    except Exception as e:
+        send_telegram_message(f"🚨 خطا در اتصال اولیه به sahamyab: {e}")
+
     while True:
-        now = datetime.now(TZ)
-        today = now.date()
-        current_time = now.time()
+        now = datetime.datetime.now(tehran)
+        date_str = now.date().isoformat()
 
-        # شروع بازار
-        if time(8, 59) <= current_time <= time(9, 1):
-            if last_start_day != today:
-                last_start_day = today
-                market_started = True
-                market_ended = False
-                notified_sahamyab = False
-                send_notification("🟢 من فعال شدم. (شروع بازار)")
-
-        # حین بازار
         if is_market_open():
-            if not notified_sahamyab:
-                data = get_sahamyab_data()
-                if data:
-                    send_notification("✅ اتصال به sahamyab موفق بود.")
-                    notified_sahamyab = True
-                else:
-                    send_notification("❌ خطا در دریافت داده sahamyab در زمان بازار.")
-                    notified_sahamyab = True
-            else:
-                if check_entry_signal():
-                    send_notification("✅ سیگنال ورود نوری صادر شد.")
-        else:
-            # پایان بازار
-            if current_time >= time(12, 31) and not market_ended:
-                send_notification("🔴 من خاموش شدم. (پایان بازار)")
-                market_ended = True
+            if last_start_day != date_str:
+                send_telegram_message("🟢 من فعال شدم. (شروع بازار)")
+                last_start_day = date_str
+                last_signal_status = None
 
-        t.sleep(120)  # هر 2 دقیقه یکبار چک شود
+            # بررسی سیگنال هر 2 دقیقه
+            try:
+                signal = check_entry_signal()
+                if signal and last_signal_status != "buy":
+                    send_telegram_message("📈 سیگنال ورود نوری شناسایی شد!")
+                    last_signal_status = "buy"
+                elif not signal and last_signal_status != "no_buy":
+                    send_telegram_message("❌ شرایط ورود مناسب نیست.")
+                    last_signal_status = "no_buy"
+            except Exception as e:
+                send_telegram_message(f"⚠️ خطا در بررسی سیگنال: {e}")
+        else:
+            if last_end_day != date_str:
+                send_telegram_message("🔴 من خاموش شدم. (پایان بازار)")
+                last_end_day = date_str
+
+        time.sleep(120)
+
+@app.route('/')
+def index():
+    return "ربات نوری فعال است."
+
+if __name__ == '__main__':
+    t = Thread(target=run_bot)
+    t.start()
+    app.run(host='0.0.0.0', port=10000)
