@@ -1,99 +1,75 @@
 import requests
-from datetime import datetime, time
+from bs4 import BeautifulSoup
+import time
+from datetime import datetime, time as dt_time
 import pytz
-import time as t
-from flask import Flask
-import threading
 
-app = Flask(__name__)  # پورت جعلی برای Render
+# تنظیمات
+SYMBOL_CODE = "nori"  # کد نماد در رهاورد (برای نوری: nori)
+TZ = pytz.timezone("Asia/Tehran")
 
-# 🛠 تنظیمات شخصی شهاب
-SYMBOL_ID = "46602927695631802"
-TZ = pytz.timezone('Asia/Tehran')
+# توکن و آیدی تلگرام خودت
 BOT_TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
 
-def send_notification(message):
-    print(f"ارسال پیام: {message}")
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {"chat_id": CHAT_ID, "text": text}
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={"chat_id": CHAT_ID, "text": message},
-            timeout=5
-        )
-    except:
-        print("❌ خطا در ارسال پیام تلگرام")
+        requests.post(url, data=data, timeout=5)
+    except Exception as e:
+        print(f"خطا در ارسال پیام تلگرام: {e}")
 
-def is_market_open():
-    now = datetime.now(TZ).time()
-    return time(9, 0) <= now <= time(12, 30)
+def get_stock_data():
+    url = f"https://rahavard365.com/stock/{SYMBOL_CODE}"
+    headers = {"User-Agent": "Mozilla/5.0"}
 
-def get_tsetmc_data():
-    url = f'https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{SYMBOL_ID}'
     try:
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
-        days = res.json()["closingPriceDaily"]
-        return days[-1], days[-2]
-    except:
-        send_notification("🚨 خطا در دریافت اطلاعات قیمت نوری از TSETMC")
-        raise
+        r = requests.get(url, headers=headers, timeout=10)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
 
-def get_instrument_info():
-    url = f'https://cdn.tsetmc.com/api/Instrument/GetInstrumentStats/{SYMBOL_ID}'
-    try:
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
-        return res.json()
-    except:
-        send_notification("🚨 خطا در دریافت اطلاعات حقوقی نوری از TSETMC")
-        raise
+        price_close_tag = soup.find("div", attrs={"data-test": "last-price"})
+        price_close = float(price_close_tag.text.replace(",", "")) if price_close_tag else None
 
-def check_entry_signal():
-    latest, yesterday = get_tsetmc_data()
-    info = get_instrument_info()
+        volume_tag = soup.find("div", attrs={"data-test": "volume"})
+        volume_text = volume_tag.text.replace(",", "") if volume_tag else None
+        volume = int(volume_text) if volume_text and volume_text.isdigit() else None
 
-    candle_positive = latest["pClosing"] > latest["priceMin"]
-    volume_today = latest["finalVolume"]
-    avg_volume_2d = sum([d["finalVolume"] for d in [latest, yesterday]]) / 2
-    volume_ok = volume_today > avg_volume_2d
+        return price_close, volume
+    except Exception as e:
+        send_telegram_message(f"🚨 خطا در دریافت داده از رهاورد: {e}")
+        return None, None
 
-    buy_legal = info['buy_CountI_Corp'] * info['buy_ValI_Corp']
-    sell_legal = info['sell_CountI_Corp'] * info['sell_ValI_Corp']
-    legal_ok = (buy_legal - sell_legal) > 0
+def check_signal():
+    price_close, volume = get_stock_data()
+    if price_close is None or volume is None:
+        print("داده ناقص است")
+        return
 
-    sell_queue_removed = latest['pClosing'] > yesterday['pClosing']
+    avg_volume = 100000  # مثال میانگین حجم
 
-    if all([candle_positive, volume_ok, legal_ok, sell_queue_removed]):
-        send_notification("✅ سیگنال ورود به نوری صادر شد.")
+    candle_positive = price_close > 4000  # قیمت بالاتر از 4000
+
+    volume_ok = volume > avg_volume
+
+    if candle_positive and volume_ok:
+        send_telegram_message("✅ سیگنال ورود نوری صادر شد.")
     else:
-        print("هنوز شرایط ورود کامل نیست.")
-
-@app.route('/')
-def fake_web():
-    return "🟢 ربات نوری در حال اجراست"
-
-def monitor_loop():
-    started = False
-    send_notification("✅ پیام تست: ربات با موفقیت اجرا شد.")
-    while True:
-        now = datetime.now(TZ).time()
-
-        if now >= time(8, 59) and not started:
-            send_notification("🟢 من فعال شدم. (شروع بازار)")
-            started = True
-
-        if is_market_open():
-            try:
-                check_entry_signal()
-            except Exception as e:
-                print(f"⚠️ خطا در بررسی دیتا: {e}")
-        elif now >= time(12, 31) and started:
-            send_notification("🔴 من خاموش شدم. (پایان بازار)")
-            started = False
-
-        t.sleep(120)  # بررسی هر ۲ دقیقه
+        print("شرایط ورود هنوز مهیا نیست.")
 
 if __name__ == "__main__":
-    threading.Thread(target=monitor_loop).start()
-    app.run(host="0.0.0.0", port=10000)
+    started = False
+    while True:
+        now = datetime.now(TZ).time()
+        if now >= dt_time(8, 59) and not started:
+            send_telegram_message("🟢 ربات نوری فعال شد (شروع بازار)")
+            started = True
+
+        if dt_time(9, 0) <= now <= dt_time(12, 30):
+            check_signal()
+        elif now > dt_time(12, 30) and started:
+            send_telegram_message("🔴 ربات نوری خاموش شد (پایان بازار)")
+            started = False
+
+        time.sleep(120)
