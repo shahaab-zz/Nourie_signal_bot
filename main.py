@@ -4,7 +4,6 @@ import requests
 from datetime import datetime, time as dtime
 import pytz
 import time
-import os
 
 # تنظیمات
 app = Flask(__name__)
@@ -23,21 +22,27 @@ def send_notification(message):
     except:
         print("❌ ارسال پیام با خطا مواجه شد")
 
-def is_market_open():
-    now = datetime.now(TZ).time()
-    return dtime(9, 0) <= now <= dtime(12, 30)
-
 def get_data():
     try:
-        return requests.get(
+        response = requests.get(
             "https://rahavard365.com/asset/47042308668866690", timeout=10
-        ).text
-    except:
-        send_notification("🚨 خطا در دریافت داده از رهاورد")
+        )
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        send_notification(f"🚨 خطا در دریافت داده از رهاورد:\n{str(e)}")
         return None
 
 def check_market():
     started = False
+
+    # 🚀 تست اولیه: آیا می‌توان از رهاورد خواند؟
+    test = get_data()
+    if test:
+        send_notification("✅ اتصال به رهاورد موفق بود.")
+    else:
+        send_notification("❌ اتصال به رهاورد شکست خورد.")
+
     while True:
         now = datetime.now(TZ).time()
 
@@ -45,10 +50,9 @@ def check_market():
             send_notification("🟢 ربات نوری فعال شد.")
             started = True
 
-        if is_market_open():
+        if dtime(9, 0) <= now <= dtime(12, 30):
             html = get_data()
             if html:
-                # در اینجا می‌تونی تحلیل HTML بزاری و شرایط ورود رو بررسی کنی
                 print("✅ در حال بررسی بازار...")
         elif now >= dtime(12, 31) and started:
             send_notification("🔴 ربات نوری خاموش شد.")
@@ -60,7 +64,7 @@ def check_market():
 def home():
     return "ربات نوری فعال است."
 
-# شروع بررسی بازار در ترد جدا
+# اجرای بررسی در ترد جداگانه
 threading.Thread(target=check_market, daemon=True).start()
 
 if __name__ == "__main__":
