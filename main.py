@@ -1,18 +1,17 @@
 import requests
 from datetime import datetime, time, date
 import pytz
+import os
 import time as t
 
 # تنظیمات
-SYMBOL = "نوری"
+SYMBOL_ID = "46602927695631802"  # نوری در سهام‌یاب
 TZ = pytz.timezone('Asia/Tehran')
-
-# اینجا توکن و چت آیدی تلگرام را مستقیم وارد کن
-BOT_TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
-CHAT_ID = "52909831"
+BOT_TOKEN = os.getenv("BOT_TOKEN") or "توکن_ربات_تو_اینجا_بزار"
+CHAT_ID = os.getenv("CHAT_ID") or "آیدی_چت_تو_اینجا_بزار"
 
 def send_notification(message):
-    print(f"📤 {message}")
+    print(f"ارسال پیام: {message}")
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -27,42 +26,55 @@ def is_market_open():
     return time(9, 0) <= now <= time(12, 30)
 
 def get_sahamyab_data():
+    url = f"https://api.sahamyab.com/api/v1/instruments/{SYMBOL_ID}"
     try:
-        url = f"https://www.sahamyab.com/stock/{SYMBOL}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=10)
+        res = requests.get(url, timeout=10)
         res.raise_for_status()
-        return res.text
+        data = res.json()
+        return data
     except Exception as e:
-        send_notification(f"🚨 خطا در دریافت اطلاعات از sahamyab:\n{e}")
+        send_notification(f"🚨 خطا در دریافت داده‌ها از sahamyab: {e}")
         return None
 
 def check_entry_signal():
-    html = get_sahamyab_data()
-    if not html:
+    data = get_sahamyab_data()
+    if data is None:
+        send_notification("🚨 خطا در دریافت داده‌ها در حین بازار!")
         return
 
-    print("✅ sahamyab page loaded successfully.")
-    # اینجا میتونی کد پردازش html را اضافه کنی
+    try:
+        latest = data["lastPrice"]
+        low = data["low"]
+        # شرط ساده ورود: قیمت پایانی > کمینه قیمت روز
+        if latest > low:
+            send_notification("✅ سیگنال ورود به نوری صادر شد.")
+        else:
+            print("شرایط ورود مهیا نیست.")
+    except Exception as e:
+        send_notification(f"🚨 خطا در پردازش داده‌ها: {e}")
 
 if __name__ == "__main__":
+    started = False
     last_start_day = None
 
     while True:
-        now = datetime.now(TZ).time()
-        today = date.today()
+        now = datetime.now(TZ)
+        current_day = now.date()
+        current_time = now.time()
 
-        if now >= time(8, 59) and (last_start_day != today):
-            if get_sahamyab_data():
-                send_notification("✅ اتصال به sahamyab موفق بود.")
+        # فقط یک بار شروع بازار رو اعلام کن
+        if is_market_open() and (not started or last_start_day != current_day):
             send_notification("🟢 من فعال شدم. (شروع بازار)")
-            last_start_day = today
+            started = True
+            last_start_day = current_day
 
+        # فقط یک بار پایان بازار رو اعلام کن
+        if current_time > time(12, 30) and started and last_start_day == current_day:
+            send_notification("🔴 من خاموش شدم. (پایان بازار)")
+            started = False
+
+        # در زمان باز بودن بازار چک کن
         if is_market_open():
             check_entry_signal()
-
-        if now >= time(12, 31) and last_start_day == today:
-            send_notification("🔴 من خاموش شدم. (پایان بازار)")
-            last_start_day = None
 
         t.sleep(120)
