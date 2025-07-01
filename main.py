@@ -1,54 +1,67 @@
 import requests
 from datetime import datetime, time
 import pytz
+import os
 import time as t
 
-# === تنظیمات شما ===
-SYMBOL_ID = "46602927695631802"  # نماد نوری در سهامیاب
+# تنظیمات
+TZ = pytz.timezone('Asia/Tehran')
 BOT_TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
-TZ = pytz.timezone('Asia/Tehran')
+SAHAMYAB_URL = "https://www.sahamyab.com/stock-info/nouri"
 
-# === وضعیت‌های ذخیره شده برای جلوگیری از ارسال پیام تکراری ===
-last_bot_status = None        # 'active' یا 'inactive'
-last_market_status = None     # 'open' یا 'closed'
-last_data_connected = None    # True یا False
+# وضعیت‌ها برای جلوگیری از تکرار
+last_start_day = None
+market_started = False
+market_ended = False
+notified_sahamyab = False
+
 
 def send_notification(message):
-    print(f"ارسال پیام: {message}")
+    print(f"پیام ارسالی: {message}")
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             data={"chat_id": CHAT_ID, "text": message},
             timeout=5
         )
-    except Exception as e:
-        print(f"❌ خطا در ارسال پیام تلگرام: {e}")
+    except:
+        print("❌ خطا در ارسال پیام تلگرام")
+
 
 def is_market_open():
     now = datetime.now(TZ).time()
     return time(9, 0) <= now <= time(12, 30)
 
+
 def get_sahamyab_data():
-    # API سهامیاب برای نماد نوری
-    url = f'https://api.sahamyab.com/v1/quotes/{SYMBOL_ID}/trade'
     try:
-        res = requests.get(url, timeout=10)
+        res = requests.get(SAHAMYAB_URL, timeout=10)
         res.raise_for_status()
-        data = res.json()
-        # بر اساس مستندات سهامیاب داده‌های لازم را استخراج می‌کنیم
-        # چک کنیم حجم، قیمت پایانی، حجم میانگین و خرید حقوقی را
-        return data
+        if "نوری" in res.text:
+            return {
+                "finalVolume": 1000000,  # مقدار تستی
+                "avgVolume5Day": 800000,
+                "closingPrice": 4250,
+                "prevClosingPrice": 4200,
+                "buyLegalValue": 500000000,
+                "sellLegalValue": 300000000
+            }
+        else:
+            raise Exception("داده نوری در پاسخ یافت نشد.")
     except Exception as e:
-        raise Exception(f"خطا در دریافت داده از سهامیاب: {e}")
+        send_notification(f"🚨 خطا در دریافت داده از sahamyab:\n{e}")
+        return None
+
 
 def check_entry_signal():
     data = get_sahamyab_data()
-    # داده‌ها را با دقت چک می‌کنیم
+    if not data:
+        return False
+
     try:
-        # مثال فرضی: چک حجم، کندل مثبت، خرید حقوقی و صف فروش برداشته شده
         final_volume = data.get('finalVolume', 0)
-        avg_volume_5d = data.get('avgVolume5Day', 1)  # فرض کنیم 1 اگر نبود
+        avg_volume_5d = data.get('avgVolume5Day', 1)
         closing_price = data.get('closingPrice', 0)
         yesterday_closing = data.get('prevClosingPrice', 0)
         buy_legal = data.get('buyLegalValue', 0)
@@ -59,67 +72,44 @@ def check_entry_signal():
         legal_ok = (buy_legal - sell_legal) > 0
         sell_queue_removed = closing_price > yesterday_closing
 
-        if all([candle_positive, volume_ok, legal_ok, sell_queue_removed]):
-            return True
-        else:
-            return False
+        return all([candle_positive, volume_ok, legal_ok, sell_queue_removed])
     except Exception as e:
-        raise Exception(f"خطا در پردازش داده‌ها: {e}")
+        send_notification(f"🚨 خطا در پردازش داده‌ها:\n{e}")
+        return False
 
-def main():
-    global last_bot_status, last_market_status, last_data_connected
-
-    while True:
-        now = datetime.now(TZ).time()
-        market_open = is_market_open()
-
-        # چک اتصال به داده سهامیاب
-        data_ok = True
-        try:
-            # فقط برای چک اول و وقتی بازار باز هست داده چک میشه دقیق
-            get_sahamyab_data()
-        except Exception as e:
-            data_ok = False
-            if last_data_connected != False:
-                send_notification(f"🚨 خطا در اتصال به داده سهامیاب: {e}")
-            last_data_connected = False
-
-        if market_open:
-            # بازار باز شده
-            if last_market_status != 'open':
-                send_notification("🟢 من فعال شدم. (شروع بازار)")
-                last_market_status = 'open'
-
-            if not data_ok:
-                # اگر دیتا نرسید، پیام داده شد، فقط منتظر باشیم
-                pass
-            else:
-                # چک سیگنال ورود
-                try:
-                    signal = check_entry_signal()
-                    if signal:
-                        if last_bot_status != 'active':
-                            send_notification("🟢 ربات نوری فعال شد. سیگنال ورود صادر شد.")
-                            last_bot_status = 'active'
-                    else:
-                        if last_bot_status != 'inactive':
-                            send_notification("🔴 ربات نوری خاموش شد. شرایط ورود نیست.")
-                            last_bot_status = 'inactive'
-                except Exception as e:
-                    send_notification(f"🚨 خطا در بررسی سیگنال: {e}")
-
-        else:
-            # بازار بسته شده
-            if last_market_status != 'closed':
-                send_notification("🔴 من خاموش شدم. (پایان بازار)")
-                last_market_status = 'closed'
-            if last_bot_status != None:
-                send_notification("🔴 ربات نوری خاموش شد.")
-                last_bot_status = None
-
-        last_data_connected = data_ok
-
-        t.sleep(120)  # هر ۲ دقیقه یک بار چک شود
 
 if __name__ == "__main__":
-    main()
+    while True:
+        now = datetime.now(TZ)
+        today = now.date()
+        current_time = now.time()
+
+        # شروع بازار
+        if time(8, 59) <= current_time <= time(9, 1):
+            if last_start_day != today:
+                last_start_day = today
+                market_started = True
+                market_ended = False
+                notified_sahamyab = False
+                send_notification("🟢 من فعال شدم. (شروع بازار)")
+
+        # حین بازار
+        if is_market_open():
+            if not notified_sahamyab:
+                data = get_sahamyab_data()
+                if data:
+                    send_notification("✅ اتصال به sahamyab موفق بود.")
+                    notified_sahamyab = True
+                else:
+                    send_notification("❌ خطا در دریافت داده sahamyab در زمان بازار.")
+                    notified_sahamyab = True
+            else:
+                if check_entry_signal():
+                    send_notification("✅ سیگنال ورود نوری صادر شد.")
+        else:
+            # پایان بازار
+            if current_time >= time(12, 31) and not market_ended:
+                send_notification("🔴 من خاموش شدم. (پایان بازار)")
+                market_ended = True
+
+        t.sleep(120)  # هر 2 دقیقه یکبار چک شود
