@@ -18,27 +18,26 @@ dispatcher = updater.dispatcher
 
 last_check_time = None
 market_open = False
-last_error_sent = False  # برای کنترل پیام خطا در حالت باز بودن بازار
+last_error_sent = False
 
 SOURCE_FILE = 'selected_source.txt'
 
-# تابع ذخیره منبع انتخاب شده
+# ذخیره منبع انتخاب شده
 def save_selected_source(source):
     with open(SOURCE_FILE, 'w') as f:
         f.write(source)
 
-# تابع خواندن منبع انتخاب شده
+# خواندن منبع انتخاب شده
 def load_selected_source():
     if not os.path.exists(SOURCE_FILE):
-        # منبع پیش‌فرض
-        return 'sahamyab'
+        return 'sahamyab'  # منبع پیش فرض
     with open(SOURCE_FILE, 'r') as f:
         return f.read().strip()
 
-# توابع نمونه گرفتن داده از منابع مختلف (باید بر اساس API واقعی نوشته شود)
+# توابع نمونه گرفتن دیتا از منابع مختلف (باید API واقعی استفاده شود)
 def get_data_from_sahamyab():
     try:
-        url = "https://api.sahamyab.com/stock/norie"
+        url = "https://api.sahamyab.com/stock/norie"  # نمونه فرضی
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
             return r.json()
@@ -47,18 +46,17 @@ def get_data_from_sahamyab():
     return None
 
 def get_data_from_kodal():
-    # نمونه فرضی
+    # اینجا کد واقعی کدال را بذار
     return None
 
 def get_data_from_rahavard():
-    # نمونه فرضی
+    # اینجا کد واقعی رهاورد 365 را بذار
     return None
 
 def get_data_from_tsetmc():
-    # نمونه فرضی
+    # اینجا کد واقعی TSETMC را بذار
     return None
 
-# تابع کلی گرفتن دیتا بر اساس منبع انتخاب شده
 def get_data():
     source = load_selected_source()
     if source == 'sahamyab':
@@ -90,30 +88,38 @@ def check_market_and_notify():
 
         if open_status:
             if data is None:
-                # بازار باز و دیتا نیست، هر بار پیام خطا بده
                 bot.send_message(chat_id=CHAT_ID, text="🚨 خطا در دریافت داده از منبع انتخاب شده!")
             else:
-                last_error_sent = False  # دیتا اومد، پس پیام خطا را ریست کن
+                last_error_sent = False
                 if not market_open:
                     market_open = True
                     bot.send_message(chat_id=CHAT_ID, text="🟢 من فعال شدم. (شروع بازار)")
         else:
-            # بازار بسته است
             if market_open:
                 market_open = False
                 bot.send_message(chat_id=CHAT_ID, text="🔴 من خاموش شدم. (پایان بازار)")
-            # در حالت بسته بودن فقط یک بار پیام خطا بده اگر دیتا نیست و هنوز خطا نفرستادی
             if data is None and not last_error_sent:
                 bot.send_message(chat_id=CHAT_ID, text="🚨 خطا در دریافت داده از منبع انتخاب شده (بازار بسته)!")
                 last_error_sent = True
-            # اگر دیتا آمد، پیام خطا را ریست کن
             if data is not None:
                 last_error_sent = False
 
         last_check_time = now
         time.sleep(120)
 
-# منوها و هندلرها
+# --- روت‌های Flask ---
+
+@app.route('/', methods=['GET'])
+def home():
+    return "ربات نوری فعال است."
+
+@app.route('/', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return 'ok'
+
+# --- منوها و هندلرها ---
 
 def main_menu(update, context):
     keyboard = [
@@ -167,7 +173,6 @@ def button_handler(update, context):
         selected_source = data.replace('source_', '')
         save_selected_source(selected_source)
         query.edit_message_text(text=f"شما منبع داده '{selected_source}' را انتخاب کردید.")
-        # بعد از انتخاب منبع، منوی اصلی رو نشون بده
         main_menu(update, context)
 
 def start(update, context):
