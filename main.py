@@ -113,4 +113,5 @@ dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), menu))
 
 if __name__ == '__main__':
     threading.Thread(target=check_market_and_notify, daemon=True).start()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+    # اجرای Flask روی همه آدرس‌ها و پورت 10000
+    app.run(host='0.0.0.0', port=10000)
