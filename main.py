@@ -22,19 +22,16 @@ last_error_sent = False
 
 SOURCE_FILE = 'selected_source.txt'
 
-# ذخیره منبع انتخاب شده
 def save_selected_source(source):
     with open(SOURCE_FILE, 'w') as f:
         f.write(source)
 
-# خواندن منبع انتخاب شده
 def load_selected_source():
     if not os.path.exists(SOURCE_FILE):
         return 'sahamyab'  # منبع پیش فرض
     with open(SOURCE_FILE, 'r') as f:
         return f.read().strip()
 
-# توابع نمونه گرفتن دیتا از منابع مختلف (باید API واقعی استفاده شود)
 def get_data_from_sahamyab():
     try:
         url = "https://api.sahamyab.com/stock/norie"  # نمونه فرضی
@@ -107,8 +104,6 @@ def check_market_and_notify():
         last_check_time = now
         time.sleep(120)
 
-# --- روت‌های Flask ---
-
 @app.route('/', methods=['GET'])
 def home():
     return "ربات نوری فعال است."
@@ -118,8 +113,6 @@ def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
     return 'ok'
-
-# --- منوها و هندلرها ---
 
 def main_menu(update, context):
     keyboard = [
@@ -147,7 +140,20 @@ def sources_menu(update, context):
 
 def status(update, context):
     global last_check_time, market_open
-    status_text = f"آخرین بررسی: {last_check_time}\nوضعیت بازار: {'باز' if market_open else 'بسته'}\nمنبع انتخاب شده: {load_selected_source()}"
+    source = load_selected_source()
+    data = get_data()
+
+    if data is None:
+        data_status = "❌ نتوانستم به منبع داده وصل شوم!"
+    else:
+        data_status = "✅ اتصال به منبع داده برقرار است."
+
+    status_text = (
+        f"آخرین بررسی: {last_check_time}\n"
+        f"وضعیت بازار: {'باز' if market_open else 'بسته'}\n"
+        f"منبع انتخاب شده: {source}\n"
+        f"وضعیت اتصال به منبع: {data_status}"
+    )
     context.bot.send_message(chat_id=update.effective_chat.id, text=status_text)
 
 def reset(update, context):
