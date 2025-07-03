@@ -7,10 +7,9 @@ from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
 from datetime import datetime, time as dtime
 
-# ======= تنظیمات توکن و شناسه چت =======
-TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"  # توکن ربات تلگرام
-CHAT_ID = "52909831"  # آی‌دی چت تلگرام شما
-BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"  # کلید API brsapi
+TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
+CHAT_ID = "52909831"
+BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"
 
 app = Flask(__name__)
 bot = Bot(token=TOKEN)
@@ -33,10 +32,7 @@ def get_brsapi_data(symbol_id):
         if status != 200:
             bot.send_message(
                 chat_id=CHAT_ID,
-                text=f"❗ پاسخ غیرموفق از API:\n"
-                     f"کد وضعیت: {status}\n"
-                     f"متن:\n{text}\n"
-                     f"آدرس:\n{url}"
+                text=f"❗ پاسخ غیرموفق از API:\nکد وضعیت: {status}\nمتن:\n{text}\nآدرس:\n{url}"
             )
             return None
 
@@ -96,8 +92,20 @@ def webhook():
     dispatcher.process_update(update)
     return 'ok'
 
+def menu(update, context):
+    keyboard = [
+        [InlineKeyboardButton("📊 وضعیت /status", callback_data='status')],
+        [InlineKeyboardButton("♻️ ریست /reset", callback_data='reset')],
+        [InlineKeyboardButton("🔍 منبع: BrsApi", callback_data='source_brsapi')],
+        [InlineKeyboardButton("🔒 منبع: Sahamyab (غیرفعال)", callback_data='source_sahamyab')],
+        [InlineKeyboardButton("🔒 منبع: TSETMC (غیرفعال)", callback_data='source_tsetmc')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text('یکی از گزینه‌ها را انتخاب کن:', reply_markup=reply_markup)
+
 def start(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id, text="سلام! ربات نوری فعال است.")
+    menu(update, context)
 
 def status(update, context):
     global last_check_time, market_open, selected_source
@@ -125,22 +133,12 @@ def button(update, context):
         selected_source = query.data.split("_")[1]
         context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ منبع داده تغییر یافت به: {selected_source}")
 
-def menu(update, context):
-    keyboard = [
-        [InlineKeyboardButton("📊 وضعیت /status", callback_data='status')],
-        [InlineKeyboardButton("♻️ ریست /reset", callback_data='reset')],
-        [InlineKeyboardButton("🔍 منبع: BrsApi", callback_data='source_brsapi')],
-        [InlineKeyboardButton("🔒 منبع: Sahamyab (غیرفعال)", callback_data='source_sahamyab')],
-        [InlineKeyboardButton("🔒 منبع: TSETMC (غیرفعال)", callback_data='source_tsetmc')],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text('یکی از گزینه‌ها را انتخاب کن:', reply_markup=reply_markup)
-
 from telegram.ext import Updater
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 dispatcher.add_handler(CommandHandler('start', start))
+dispatcher.add_handler(CommandHandler('menu', menu))
 dispatcher.add_handler(CommandHandler('status', status))
 dispatcher.add_handler(CommandHandler('reset', reset))
 dispatcher.add_handler(CallbackQueryHandler(button))
