@@ -1,127 +1,79 @@
-import os
-import time
-import threading
-import requests
-from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
-from datetime import datetime, time as dtime
+import os import time import threading import requests from flask import Flask, request from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters from datetime import datetime, time as dtime
 
-app = Flask(__name__)
+--- تنظیمات اصلی ---
 
-# اطلاعات توکن و چت‌آی‌دی
-TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
-CHAT_ID = "52909831"
+TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"  # توکن بات CHAT_ID = "52909831"  # آیدی چت تلگرام SELECTED_SOURCE = "brsapi"  # منبع انتخاب شده پیش‌فرض BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"
 
-bot = Bot(token=TOKEN)
-selected_source = "brsapi"
+bot = Bot(token=TOKEN) app = Flask(name)
 
-last_check_time = None
-market_open = False
+last_check_time = None market_open = False
 
-def fetch_data_brsapi():
-    try:
-        url = "https://brsapi.ir/Api/Tsetmc/AllSymbols.php"
-        params = {
-            "key": "Free5VSOryjPh51wo8o6tltHkv0DhsE8",
-            "type": "1"
-        }
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data_list = response.json()
-        for item in data_list:
-            if item.get("symbol") == "نوری":
-                return item
-        return None
-    except Exception as e:
-        bot.send_message(
-            chat_id=CHAT_ID,
-            text=(
-                f"🚨 خطا در اتصال به داده {selected_source}:\n"
-                f"خطا: {str(e)}\n"
-                f"🌐 URL: {url}?key={params['key']}&type={params['type']}"
-            )
-        )
-        return None
+کش آخرین وضعیت دستی برای جلوگیری از خطا در بازار بسته
 
-def is_market_open():
-    now = datetime.now().time()
-    return dtime(9, 0) <= now <= dtime(12, 30)
+cached_data = None cached_time = None
 
-def check_market_and_notify():
-    global last_check_time, market_open
-    while True:
-        now = datetime.now()
-        last_check_time = now
-        open_status = is_market_open()
-        data = fetch_data_brsapi()
+def is_market_open(): now = datetime.now().time() morning_start = dtime(9, 0) morning_end = dtime(12, 30) afternoon_start = dtime(13, 30) afternoon_end = dtime(15, 0) return (morning_start <= now <= morning_end) or (afternoon_start <= now <= afternoon_end)
 
-        if open_status and not market_open:
-            market_open = True
-            bot.send_message(chat_id=CHAT_ID, text="🟢 من فعال شدم. (بازار باز است)")
-        elif not open_status and market_open:
-            market_open = False
-            bot.send_message(chat_id=CHAT_ID, text="🔴 من خاموش شدم. (بازار بسته شد)")
+def get_brsapi_data(): try: url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1" headers = {"User-Agent": "Mozilla/5.0"} response = requests.get(url, headers=headers, timeout=10) response.raise_for_status() return response.json(), url, None except Exception as e: return None, url, str(e)
 
-        time.sleep(120)
+def check_market_and_notify(): global last_check_time, market_open, cached_data, cached_time
 
-@app.route("/", methods=["GET"])
-def home():
-    return "ربات نوری فعال است."
+while True:
+    now = datetime.now()
+    open_status = is_market_open()
+    last_check_time = now
 
-@app.route("/", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok"
+    if open_status:
+        data, url, error = get_brsapi_data()
+        if error:
+            bot.send_message(chat_id=CHAT_ID, text=f"🚨 خطا در اتصال به داده {SELECTED_SOURCE}:
 
-def start(update, context):
-    keyboard = [
-        [InlineKeyboardButton("📊 وضعیت", callback_data='status')],
-        [InlineKeyboardButton("🔁 ریست", callback_data='reset')],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    context.bot.send_message(chat_id=update.effective_chat.id, text="یک گزینه را انتخاب کنید:", reply_markup=reply_markup)
+خطا: {error}\n\n🌐 URL: {url}") if not market_open: market_open = True bot.send_message(chat_id=CHAT_ID, text="🟢 من فعال شدم. (شروع بازار)") else: if not market_open: time.sleep(120) continue market_open = False cached_data, cached_time = get_brsapi_data() bot.send_message(chat_id=CHAT_ID, text="🔴 من خاموش شدم. (پایان بازار)")
 
-def status(update, context):
-    global last_check_time, market_open, selected_source
-    data = fetch_data_brsapi()
-    ok = "✅ اتصال برقرار است." if data else "❌ اتصال برقرار نیست."
-    status_text = f"""🕓 آخرین بررسی: {last_check_time}
-📈 بازار: {'باز' if market_open else 'بسته'}
-📡 منبع داده: {selected_source}
-{ok}"""
-    context.bot.send_message(chat_id=update.effective_chat.id, text=status_text)
+time.sleep(120)
 
-def reset(update, context):
-    global market_open, last_check_time
-    market_open = False
-    last_check_time = None
-    context.bot.send_message(chat_id=update.effective_chat.id, text="ریست شد.")
+@app.route('/', methods=['GET']) def home(): return "ربات نوری فعال است."
 
-def button(update, context):
-    query = update.callback_query
-    query.answer()
-    if query.data == 'status':
-        status(query, context)
-    elif query.data == 'reset':
-        reset(query, context)
+@app.route('/', methods=['POST']) def webhook(): update = Update.de_json(request.get_json(force=True), bot) dispatcher.process_update(update) return 'ok'
 
-def menu(update, context):
-    start(update, context)
+def start(update, context): context.bot.send_message(chat_id=update.effective_chat.id, text="سلام! ربات نوری فعال است.") show_menu(update, context)
 
-# راه‌اندازی دیسپچر
-from telegram.ext import Updater
-updater = Updater(token=TOKEN, use_context=True)
-dispatcher = updater.dispatcher
+def status(update, context): global last_check_time, cached_time
 
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("status", status))
-dispatcher.add_handler(CommandHandler("reset", reset))
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, menu))
-dispatcher.add_handler(CallbackQueryHandler(button))
+open_status = is_market_open()
+source = SELECTED_SOURCE
+market = 'باز' if open_status else 'بسته'
 
-# شروع برنامه
-if __name__ == "__main__":
-    threading.Thread(target=check_market_and_notify, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+# بررسی دستی اتصال در همین لحظه
+data, url, error = get_brsapi_data()
+
+if error:
+    context.bot.send_message(chat_id=update.effective_chat.id, text=f"🚨 خطا در اتصال به داده {source}:
+
+خطا: {error}\n\n🌐 URL: {url}") else: context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ اتصال برقرار است.")
+
+context.bot.send_message(chat_id=update.effective_chat.id, text=f"🕓 آخرین بررسی: {last_check_time}\n📈 بازار: {market}\n📡 منبع داده: {source}")
+
+def reset(update, context): global market_open, last_check_time market_open = False last_check_time = None context.bot.send_message(chat_id=update.effective_chat.id, text="✅ ربات ریست شد.")
+
+def button(update, context): query = update.callback_query query.answer()
+
+if query.data == 'status':
+    status(query, context)
+elif query.data == 'reset':
+    reset(query, context)
+elif query.data == 'start':
+    start(query, context)
+else:
+    query.edit_message_text(text="دستور نامعتبر")
+
+def show_menu(update, context): keyboard = [ [InlineKeyboardButton("📊 وضعیت بازار (Status)", callback_data='status')], [InlineKeyboardButton("🔄 ریست ربات (Reset)", callback_data='reset')], ] reply_markup = InlineKeyboardMarkup(keyboard) context.bot.send_message(chat_id=update.effective_chat.id, text='یک گزینه انتخاب کنید:', reply_markup=reply_markup)
+
+def handle_text(update, context): show_menu(update, context)
+
+from telegram.ext import Updater updater = Updater(token=TOKEN, use_context=True) dispatcher = updater.dispatcher
+
+dispatcher.add_handler(CommandHandler('start', start)) dispatcher.add_handler(CommandHandler('status', status)) dispatcher.add_handler(CommandHandler('reset', reset)) dispatcher.add_handler(CallbackQueryHandler(button)) dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_text))
+
+if name == 'main': threading.Thread(target=check_market_and_notify, daemon=True).start() app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+
