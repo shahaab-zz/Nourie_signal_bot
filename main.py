@@ -33,26 +33,48 @@ def load_selected_source():
         return f.read().strip()
 
 def get_data_from_sahamyab():
+    url = "https://api.sahamyab.com/v1/quotes/46602927695631802/trade"  # آدرس دقیق نمونه
     try:
-        url = "https://api.sahamyab.com/stock/norie"  # نمونه فرضی
         r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            return r.json()
-    except:
-        pass
-    return None
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        error_text = f"🚨 خطا در دریافت داده از سهامیاب:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
+        bot.send_message(chat_id=CHAT_ID, text=error_text)
+        return None
 
 def get_data_from_kodal():
-    # اینجا کد واقعی کدال را بذار
-    return None
+    url = "https://api.kodal.ir/api/your_endpoint"  # آدرس فرضی، اصلاح کن
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        error_text = f"🚨 خطا در دریافت داده از کدال:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
+        bot.send_message(chat_id=CHAT_ID, text=error_text)
+        return None
 
 def get_data_from_rahavard():
-    # اینجا کد واقعی رهاورد 365 را بذار
-    return None
+    url = "https://api.rahavard365.com/api/your_endpoint"  # آدرس فرضی، اصلاح کن
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        error_text = f"🚨 خطا در دریافت داده از رهاورد 365:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
+        bot.send_message(chat_id=CHAT_ID, text=error_text)
+        return None
 
 def get_data_from_tsetmc():
-    # اینجا کد واقعی TSETMC را بذار
-    return None
+    url = "https://www.tsetmc.com/api/your_endpoint"  # آدرس فرضی، اصلاح کن
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        error_text = f"🚨 خطا در دریافت داده از TSETMC:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
+        bot.send_message(chat_id=CHAT_ID, text=error_text)
+        return None
 
 def get_data():
     source = load_selected_source()
