@@ -1,76 +1,67 @@
-import os import json import time import threading import requests from flask import Flask, request from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters from datetime import datetime, time as dtime
+import os import time import threading import requests from flask import Flask, request from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters from datetime import datetime, time as dtime
 
 app = Flask(name)
 
-ثابت‌ها
+اطلاعات ربات
 
-TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"  # توکن بات CHAT_ID = "52909831"  # آی‌دی چت bot = Bot(token=TOKEN)
+TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU" CHAT_ID = "52909831"
 
-تنظیمات وضعیت و منبع داده
+bot = Bot(token=TOKEN)
 
-last_check_time = None market_open = False selected_source = "brsapi"  # پیش‌فرض منبع فعال
+وضعیت جهانی
 
-لینک BRSAPI برای دریافت همه نمادها
+last_check_time = None market_open = False selected_source = "brsapi"
 
-BRSAPI_URL = "https://brsapi.ir/Api/Tsetmc/AllSymbols.php" BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"
+دیکشنری منابع داده
 
-def is_market_open(): now = datetime.now().time() return dtime(9, 0) <= now <= dtime(12, 30)
+DATA_SOURCES = { "brsapi": { "name": "brsapi", "url": lambda: f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key=Free5VSOryjPh51wo8o6tltHkv0DhsE8&type=1" }, "tsetmc": { "name": "tsetmc (غیرفعال)", "url": lambda: None }, "rahavard": { "name": "rahavard365 (غیرفعال)", "url": lambda: None }, "codal": { "name": "codal (غیرفعال)", "url": lambda: None } }
 
-def get_brsapi_data(): url = f"{BRSAPI_URL}?key={BRSAPI_KEY}&type=1" try: response = requests.get(url, timeout=10) response.raise_for_status()
+def is_market_open(): now = datetime.now().time() morning = dtime(9, 0) noon = dtime(12, 30) return morning <= now <= noon
 
-# بررسی اینکه آیا پاسخ JSON معتبر دارد یا نه
-    data = response.json()
-    if isinstance(data, list):
-        return {"success": True, "data": data, "url": url}
-    else:
-        return {"success": False, "error": "پاسخ JSON نامعتبر", "url": url}
+def get_data(): global selected_source source = DATA_SOURCES[selected_source] url = source"url" if not url: return None, f"منبع '{selected_source}' فعال نیست.", url
 
+try:
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    return response.json(), None, url
 except Exception as e:
-    return {"success": False, "error": str(e), "url": url}
+    return None, str(e), url
 
-def check_market_and_notify(): global last_check_time, market_open while True: now = datetime.now() open_status = is_market_open()
+def check_market_and_notify(): global market_open, last_check_time already_warned = False
 
-# فقط وقتی بازار بازه هر دو دقیقه چک کنه
-    if open_status:
-        result = get_brsapi_data()
-        if not result["success"]:
-            bot.send_message(chat_id=CHAT_ID,
-                             text=f"🚨 خطا در اتصال به داده BrsApi:\n🌐 URL: {result['url']}\n⚠️ خطا: {result['error']}")
-        elif not market_open:
-            bot.send_message(chat_id=CHAT_ID, text="🟢 بازار باز شد. من فعال شدم.")
-    elif market_open:
-        bot.send_message(chat_id=CHAT_ID, text="🔴 بازار بسته شد. من خاموش شدم.")
-
-    market_open = open_status
+while True:
+    now = datetime.now()
+    open_status = is_market_open()
     last_check_time = now
-    time.sleep(120)
+
+    if open_status:
+        data, error, url = get_data()
+        if error:
+            bot.send_message(
+                chat_id=CHAT_ID,
+                text=f"🚨 خطا در اتصال به داده {selected_source}:
+
+🌐 URL: {url} خطا: {error}" ) if not market_open: market_open = True bot.send_message(chat_id=CHAT_ID, text="✅ بازار باز شد. من فعال شدم.") else: if market_open: market_open = False bot.send_message(chat_id=CHAT_ID, text="🔴 بازار بسته شد. من خاموش شدم.") time.sleep(120)
 
 @app.route('/', methods=['GET']) def home(): return "ربات نوری فعال است."
 
 @app.route('/', methods=['POST']) def webhook(): update = Update.de_json(request.get_json(force=True), bot) dispatcher.process_update(update) return 'ok'
 
-def start(update, context): menu(update, context)
+def start(update, context): context.bot.send_message(chat_id=update.effective_chat.id, text="سلام! ربات نوری فعال است. با /menu شروع کن.")
 
-def status(update, context): global last_check_time, market_open result = get_brsapi_data() msg = f"🕓 آخرین بررسی: {last_check_time}\n" msg += f"📈 بازار: {'باز' if market_open else 'بسته'}\n" msg += f"📡 منبع داده: {selected_source}\n"
+def status(update, context): global last_check_time data, error, url = get_data() status_text = f"🕓 آخرین بررسی: {last_check_time}\n📈 بازار: {'باز' if market_open else 'بسته'}\n📡 منبع داده: {selected_source}" if error: status_text += f"\n🚨 خطا: {error}\n🌐 URL: {url}" context.bot.send_message(chat_id=update.effective_chat.id, text=status_text)
 
-if result["success"]:
-    msg += "✅ اتصال موفق به BrsApi"
-else:
-    msg += f"🚨 خطا: {result['error']}\n🌐 URL: {result['url']}"
+def reset(update, context): global market_open, last_check_time market_open = False last_check_time = None context.bot.send_message(chat_id=update.effective_chat.id, text="ریست شد.")
 
-context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+def change_source(update, context): global selected_source query = update.callback_query query.answer() selected_source = query.data query.edit_message_text(text=f"✅ منبع جدید انتخاب شد: {selected_source}")
 
-def reset(update, context): global market_open, last_check_time market_open = False last_check_time = None context.bot.send_message(chat_id=update.effective_chat.id, text="🔄 ربات ریست شد.")
+def menu(update, context): keyboard = [ [InlineKeyboardButton("📊 وضعیت", callback_data='status')], [InlineKeyboardButton("♻️ ریست", callback_data='reset')], [InlineKeyboardButton("📡 منبع: brsapi", callback_data='brsapi')], [InlineKeyboardButton("tsetmc (غیرفعال)", callback_data='tsetmc')], [InlineKeyboardButton("rahavard365 (غیرفعال)", callback_data='rahavard')], [InlineKeyboardButton("codal (غیرفعال)", callback_data='codal')] ] reply_markup = InlineKeyboardMarkup(keyboard) update.message.reply_text('🔽 یک گزینه انتخاب کن:', reply_markup=reply_markup)
 
-def button(update, context): query = update.callback_query query.answer() data = query.data if data == 'status': status(query, context) elif data == 'reset': reset(query, context) elif data == 'menu': menu(query, context)
-
-def menu(update, context): keyboard = [ [InlineKeyboardButton("📊 وضعیت بازار", callback_data='status')], [InlineKeyboardButton("🔄 ریست ربات", callback_data='reset')], ] reply_markup = InlineKeyboardMarkup(keyboard) if update.callback_query: update.callback_query.edit_message_text('گزینه موردنظر را انتخاب کنید:', reply_markup=reply_markup) else: update.message.reply_text('گزینه موردنظر را انتخاب کنید:', reply_markup=reply_markup)
+def button(update, context): query = update.callback_query if query.data == 'status': status(query, context) elif query.data == 'reset': reset(query, context) elif query.data in DATA_SOURCES: change_source(update, context)
 
 from telegram.ext import Updater updater = Updater(token=TOKEN, use_context=True) dispatcher = updater.dispatcher
 
-هندلرها
-
-dispatcher.add_handler(CommandHandler('start', start)) dispatcher.add_handler(CommandHandler('status', status)) dispatcher.add_handler(CommandHandler('reset', reset)) dispatcher.add_handler(CallbackQueryHandler(button)) dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), menu))
+dispatcher.add_handler(CommandHandler('start', start)) dispatcher.add_handler(CommandHandler('menu', menu)) dispatcher.add_handler(CommandHandler('status', status)) dispatcher.add_handler(CommandHandler('reset', reset)) dispatcher.add_handler(CallbackQueryHandler(button)) dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), menu))
 
 if name == 'main': threading.Thread(target=check_market_and_notify, daemon=True).start() app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
 
