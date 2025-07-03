@@ -8,9 +8,9 @@ from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, Messa
 from datetime import datetime, time as dtime
 
 # --- تنظیمات اصلی ---
-TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"  # توکن بات
-CHAT_ID = "52909831"  # آیدی چت تلگرام
-SELECTED_SOURCE = "brsapi"  # منبع انتخاب شده پیش‌فرض
+TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
+CHAT_ID = "52909831"
+SELECTED_SOURCE = "brsapi"
 BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"
 
 bot = Bot(token=TOKEN)
@@ -18,18 +18,12 @@ app = Flask(__name__)
 
 last_check_time = None
 market_open = False
-
-# کش آخرین وضعیت دستی برای جلوگیری از خطا در بازار بسته
 cached_data = None
 cached_time = None
 
 def is_market_open():
     now = datetime.now().time()
-    morning_start = dtime(9, 0)
-    morning_end = dtime(12, 30)
-    afternoon_start = dtime(13, 30)
-    afternoon_end = dtime(15, 0)
-    return (morning_start <= now <= morning_end) or (afternoon_start <= now <= afternoon_end)
+    return (dtime(9, 0) <= now <= dtime(12, 30)) or (dtime(13, 30) <= now <= dtime(15, 0))
 
 def get_brsapi_data():
     url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
@@ -79,24 +73,27 @@ def webhook():
     return 'ok'
 
 def start(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="سلام! ربات نوری فعال است.")
+    chat_id = update.chat.id
+    context.bot.send_message(chat_id=chat_id, text="سلام! ربات نوری فعال است.")
     show_menu(update, context)
 
 def status(update, context):
     global last_check_time
+    chat_id = update.chat.id
     open_status = is_market_open()
     source = SELECTED_SOURCE
     market = 'باز' if open_status else 'بسته'
     data, url, error = get_brsapi_data()
     if error:
         context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            chat_id=chat_id,
             text=f"🚨 خطا در اتصال به داده {source}:\nخطا: {error}\n\n🌐 URL: {url}"
         )
     else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="✅ اتصال برقرار است.")
+        context.bot.send_message(chat_id=chat_id, text="✅ اتصال برقرار است.")
+
     context.bot.send_message(
-        chat_id=update.effective_chat.id,
+        chat_id=chat_id,
         text=f"🕓 آخرین بررسی: {last_check_time}\n📈 بازار: {market}\n📡 منبع داده: {source}"
     )
 
@@ -104,19 +101,25 @@ def reset(update, context):
     global market_open, last_check_time
     market_open = False
     last_check_time = None
-    context.bot.send_message(chat_id=update.effective_chat.id, text="✅ ربات ریست شد.")
+    chat_id = update.chat.id
+    context.bot.send_message(chat_id=chat_id, text="✅ ربات ریست شد.")
 
 def button(update, context):
-    query = update.callback_query
-    query.answer()
-    if query.data == 'status':
-        status(update=query.message, context=context)
-    elif query.data == 'reset':
-        reset(update=query.message, context=context)
-    elif query.data == 'start':
-        start(update=query.message, context=context)
-    else:
-        query.edit_message_text(text="دستور نامعتبر")
+    try:
+        query = update.callback_query
+        query.answer()
+        # استفاده از query.message به‌جای ارسال کل Update
+        if query.data == 'status':
+            status(update=query.message, context=context)
+        elif query.data == 'reset':
+            reset(update=query.message, context=context)
+        elif query.data == 'start':
+            start(update=query.message, context=context)
+        else:
+            query.edit_message_text(text="دستور نامعتبر")
+    except Exception as e:
+        query.edit_message_text(text=f"⚠️ خطا در اجرای دستور: {e}")
+        print(f"[button] ERROR: {e}")
 
 def show_menu(update, context):
     keyboard = [
@@ -124,7 +127,8 @@ def show_menu(update, context):
         [InlineKeyboardButton("🔄 ریست ربات (Reset)", callback_data='reset')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    context.bot.send_message(chat_id=update.effective_chat.id, text='یک گزینه انتخاب کنید:', reply_markup=reply_markup)
+    chat_id = update.chat.id
+    context.bot.send_message(chat_id=chat_id, text='یک گزینه انتخاب کنید:', reply_markup=reply_markup)
 
 def handle_text(update, context):
     show_menu(update, context)
