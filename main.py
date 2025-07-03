@@ -8,10 +8,8 @@ from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, Messa
 from datetime import datetime, time as dtime
 
 app = Flask(__name__)
-
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
-
 bot = Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
@@ -19,108 +17,76 @@ dispatcher = updater.dispatcher
 last_check_time = None
 market_open = False
 last_error_sent = False
-
 SOURCE_FILE = 'selected_source.txt'
 
 def save_selected_source(source):
-    with open(SOURCE_FILE, 'w') as f:
-        f.write(source)
+    with open(SOURCE_FILE, 'w') as f: f.write(source)
 
 def load_selected_source():
-    if not os.path.exists(SOURCE_FILE):
-        return 'sahamyab'  # منبع پیش فرض
-    with open(SOURCE_FILE, 'r') as f:
-        return f.read().strip()
+    if not os.path.exists(SOURCE_FILE): return 'brsapi'
+    return open(SOURCE_FILE).read().strip()
 
-def get_data_from_sahamyab():
-    url = "https://api.sahamyab.com/v1/quotes/46602927695631802/trade"  # آدرس دقیق نمونه
+def get_data_from_brsapi():
+    api_key = os.environ.get("BRSAPI_KEY", "Free5VSOryjPh51wo8o6tltHkv0DhsE8")
+    url = f"https://brsapi.ir/api/v1/stock-info/نوری"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "Mozilla/5.0"
+    }
     try:
-        r = requests.get(url, timeout=10)
+        r = requests.get(url, headers=headers, timeout=10)
         r.raise_for_status()
         return r.json()
-    except requests.exceptions.RequestException as e:
-        error_text = f"🚨 خطا در دریافت داده از سهامیاب:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
-        bot.send_message(chat_id=CHAT_ID, text=error_text)
+    except requests.RequestException as e:
+        bot.send_message(chat_id=CHAT_ID, text=f"🚨 خطا در BrsApi (نوری):\nآدرس: {url}\nخطا: {e}")
         return None
 
-def get_data_from_kodal():
-    url = "https://api.kodal.ir/api/your_endpoint"  # آدرس فرضی، اصلاح کن
+def get_data_from_other():
+    url = "https://example.com/your-limited-api"  # جایگزین کن
     try:
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         return r.json()
-    except requests.exceptions.RequestException as e:
-        error_text = f"🚨 خطا در دریافت داده از کدال:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
-        bot.send_message(chat_id=CHAT_ID, text=error_text)
-        return None
-
-def get_data_from_rahavard():
-    url = "https://api.rahavard365.com/api/your_endpoint"  # آدرس فرضی، اصلاح کن
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except requests.exceptions.RequestException as e:
-        error_text = f"🚨 خطا در دریافت داده از رهاورد 365:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
-        bot.send_message(chat_id=CHAT_ID, text=error_text)
-        return None
-
-def get_data_from_tsetmc():
-    url = "https://www.tsetmc.com/api/your_endpoint"  # آدرس فرضی، اصلاح کن
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except requests.exceptions.RequestException as e:
-        error_text = f"🚨 خطا در دریافت داده از TSETMC:\nآدرس: {url}\nجزئیات خطا: {str(e)}"
-        bot.send_message(chat_id=CHAT_ID, text=error_text)
+    except requests.RequestException as e:
+        bot.send_message(chat_id=CHAT_ID, text=f"🚨 خطا در منبع دیگر:\nآدرس: {url}\nخطا: {e}")
         return None
 
 def get_data():
-    source = load_selected_source()
-    if source == 'sahamyab':
-        return get_data_from_sahamyab()
-    elif source == 'kodal':
-        return get_data_from_kodal()
-    elif source == 'rahavard':
-        return get_data_from_rahavard()
-    elif source == 'tsetmc':
-        return get_data_from_tsetmc()
+    s = load_selected_source()
+    if s == 'brsapi':
+        return get_data_from_brsapi()
+    elif s == 'other':
+        return get_data_from_other()
     else:
         return None
 
 def is_market_open():
     now = datetime.now().time()
-    morning_start = dtime(9, 0)
-    morning_end = dtime(12, 30)
-    afternoon_start = dtime(13, 30)
-    afternoon_end = dtime(15, 0)
-    return (morning_start <= now <= morning_end) or (afternoon_start <= now <= afternoon_end)
+    return (dtime(9,0) <= now <= dtime(12,30)) or (dtime(13,30) <= now <= dtime(15,0))
 
 def check_market_and_notify():
     global last_check_time, market_open, last_error_sent
-
     while True:
         now = datetime.now()
-        open_status = is_market_open()
+        open_ = is_market_open()
         data = get_data()
 
-        if open_status:
-            if data is None:
-                bot.send_message(chat_id=CHAT_ID, text="🚨 خطا در دریافت داده از منبع انتخاب شده!")
+        if open_:
+            if not data:
+                bot.send_message(chat_id=CHAT_ID, text="🚨 خطا در دریافت داده!")
             else:
                 last_error_sent = False
                 if not market_open:
                     market_open = True
-                    bot.send_message(chat_id=CHAT_ID, text="🟢 من فعال شدم. (شروع بازار)")
+                    bot.send_message(chat_id=CHAT_ID, text="🟢 آغاز بازار")
         else:
             if market_open:
                 market_open = False
-                bot.send_message(chat_id=CHAT_ID, text="🔴 من خاموش شدم. (پایان بازار)")
-            if data is None and not last_error_sent:
-                bot.send_message(chat_id=CHAT_ID, text="🚨 خطا در دریافت داده از منبع انتخاب شده (بازار بسته)!")
+                bot.send_message(chat_id=CHAT_ID, text="🔴 پایان بازار")
+            if not data and not last_error_sent:
+                bot.send_message(chat_id=CHAT_ID, text="🚨 خطا (بازار بسته)!")
                 last_error_sent = True
-            if data is not None:
+            if data:
                 last_error_sent = False
 
         last_check_time = now
@@ -137,85 +103,58 @@ def webhook():
     return 'ok'
 
 def main_menu(update, context):
-    keyboard = [
-        [InlineKeyboardButton("📊 انتخاب منبع داده", callback_data='select_source')],
-        [InlineKeyboardButton("وضعیت /status", callback_data='status')],
-        [InlineKeyboardButton("ریست /reset", callback_data='reset')],
+    kb = [
+        [InlineKeyboardButton("🟢 BrsApi (نوری)", callback_data='source_brsapi')],
+        [InlineKeyboardButton("🔷 منبع دیگر", callback_data='source_other')],
+        [InlineKeyboardButton("📊 وضعیت /status", callback_data='status')],
+        [InlineKeyboardButton("🔄 ریست /reset", callback_data='reset')],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    markup = InlineKeyboardMarkup(kb)
     if update.message:
-        update.message.reply_text("منوی اصلی:", reply_markup=reply_markup)
+        update.message.reply_text("منوی انتخاب منبع:", reply_markup=markup)
     else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="منوی اصلی:", reply_markup=reply_markup)
+        context.bot.send_message(chat_id=update.effective_chat.id, text="منوی انتخاب منبع:", reply_markup=markup)
 
 def sources_menu(update, context):
-    keyboard = [
-        [InlineKeyboardButton("سهامیاب", callback_data='source_sahamyab')],
-        [InlineKeyboardButton("کدال", callback_data='source_kodal')],
-        [InlineKeyboardButton("رهاورد 365", callback_data='source_rahavard')],
-        [InlineKeyboardButton("TSETMC", callback_data='source_tsetmc')],
-        [InlineKeyboardButton("بازگشت به منوی اصلی", callback_data='main_menu')],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    query = update.callback_query
-    query.edit_message_text(text="لطفا منبع داده را انتخاب کنید:", reply_markup=reply_markup)
+    main_menu(update, context)
 
 def status(update, context):
     global last_check_time, market_open
-    source = load_selected_source()
+    src = load_selected_source()
     data = get_data()
-
-    if data is None:
-        data_status = "❌ نتوانستم به منبع داده وصل شوم!"
-    else:
-        data_status = "✅ اتصال به منبع داده برقرار است."
-
-    status_text = (
-        f"آخرین بررسی: {last_check_time}\n"
-        f"وضعیت بازار: {'باز' if market_open else 'بسته'}\n"
-        f"منبع انتخاب شده: {source}\n"
-        f"وضعیت اتصال به منبع: {data_status}"
-    )
-    context.bot.send_message(chat_id=update.effective_chat.id, text=status_text)
+    ds = "✅ وصل شدم" if data else "❌ نشد"
+    txt = f"آخرین بررسی: {last_check_time}\nبازار: {'باز' if market_open else 'بسته'}\nمنبع: {src}\nاتصال: {ds}"
+    context.bot.send_message(chat_id=update.effective_chat.id, text=txt)
 
 def reset(update, context):
     global market_open, last_check_time
     market_open = False
     last_check_time = None
-    context.bot.send_message(chat_id=update.effective_chat.id, text="ربات ریست شد.")
+    context.bot.send_message(chat_id=update.effective_chat.id, text="🛠️ ربات ری‌ست شد.")
 
 def button_handler(update, context):
-    query = update.callback_query
-    query.answer()
-    data = query.data
-
-    if data == 'main_menu':
+    q = update.callback_query
+    q.answer()
+    d = q.data
+    if d.startswith('source_'):
+        sel = d.split('_')[1]
+        save_selected_source('brsapi' if sel=='brsapi' else 'other')
+        q.edit_message_text(text=f"منبع داده تغییر کرد: {sel}")
         main_menu(update, context)
-    elif data == 'select_source':
-        sources_menu(update, context)
-    elif data == 'status':
+    elif d == 'status':
         status(update, context)
-    elif data == 'reset':
+    elif d == 'reset':
         reset(update, context)
-    elif data.startswith('source_'):
-        selected_source = data.replace('source_', '')
-        save_selected_source(selected_source)
-        query.edit_message_text(text=f"شما منبع داده '{selected_source}' را انتخاب کردید.")
-        main_menu(update, context)
 
 def start(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="سلام! ربات نوری فعال است.")
-    main_menu(update, context)
-
-def menu(update, context):
+    context.bot.send_message(chat_id=update.effective_chat.id, text="سلام! من فعالم 😊")
     main_menu(update, context)
 
 dispatcher.add_handler(CommandHandler('start', start))
-dispatcher.add_handler(CommandHandler('menu', menu))
 dispatcher.add_handler(CallbackQueryHandler(button_handler))
 dispatcher.add_handler(CommandHandler('status', status))
 dispatcher.add_handler(CommandHandler('reset', reset))
-dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), menu))
+dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), start))
 
 if __name__ == '__main__':
     threading.Thread(target=check_market_and_notify, daemon=True).start()
