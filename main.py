@@ -1,16 +1,15 @@
-import os
-import time
-import threading
-import requests
-from flask import Flask, request
 from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+from flask import Flask, request
+import threading
+import requests
 from datetime import datetime, time as dtime
+import time
 
 app = Flask(__name__)
 
-TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"  # توکن تو
-CHAT_ID = "52909831"  # آیدی چت تلگرام تو
+TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
+CHAT_ID = "52909831"
 
 bot = Bot(token=TOKEN)
 
@@ -19,7 +18,7 @@ market_open = False
 
 def get_sahamyab_data():
     try:
-        url = "https://api.sahamyab.com/stock/norie"  # نمونه فرضی، حتما اصلاح کن
+        url = "https://api.sahamyab.com/stock/norie"  # اصلاح کن
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             return response.json()
@@ -69,6 +68,7 @@ def webhook():
 
 def start(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id, text="سلام! ربات نوری فعال است.")
+    show_menu(update, context)
 
 def status(update, context):
     global last_check_time, market_open
@@ -81,24 +81,24 @@ def reset(update, context):
     last_check_time = None
     context.bot.send_message(chat_id=update.effective_chat.id, text="ربات ریست شد.")
 
-def button(update, context):
-    query = update.callback_query
-    query.answer()
-    if query.data == 'start':
-        start(update, context)
-    elif query.data == 'status':
-        status(update, context)
-    elif query.data == 'reset':
-        reset(update, context)
-
-def menu(update, context):
+def show_menu(update, context):
     keyboard = [
-        [InlineKeyboardButton("شروع /start", callback_data='start')],
         [InlineKeyboardButton("وضعیت /status", callback_data='status')],
         [InlineKeyboardButton("ریست /reset", callback_data='reset')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text('یک گزینه انتخاب کنید:', reply_markup=reply_markup)
+
+def menu(update, context):
+    show_menu(update, context)
+
+def button(update, context):
+    query = update.callback_query
+    query.answer()
+    if query.data == 'status':
+        status(update, context)
+    elif query.data == 'reset':
+        reset(update, context)
 
 from telegram.ext import Updater
 
@@ -108,10 +108,10 @@ dispatcher = updater.dispatcher
 dispatcher.add_handler(CommandHandler('start', start))
 dispatcher.add_handler(CommandHandler('status', status))
 dispatcher.add_handler(CommandHandler('reset', reset))
+dispatcher.add_handler(CommandHandler('menu', menu))
 dispatcher.add_handler(CallbackQueryHandler(button))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), menu))
 
 if __name__ == '__main__':
     threading.Thread(target=check_market_and_notify, daemon=True).start()
-    # اجرای Flask روی همه آدرس‌ها و پورت 10000
     app.run(host='0.0.0.0', port=10000)
