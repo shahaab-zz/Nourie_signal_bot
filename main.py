@@ -8,8 +8,10 @@ from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, Messa
 from datetime import datetime, time as dtime
 
 app = Flask(__name__)
+
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
+
 bot = Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
@@ -20,29 +22,31 @@ last_error_sent = False
 SOURCE_FILE = 'selected_source.txt'
 
 def save_selected_source(source):
-    with open(SOURCE_FILE, 'w') as f: f.write(source)
+    with open(SOURCE_FILE, 'w') as f:
+        f.write(source)
 
 def load_selected_source():
-    if not os.path.exists(SOURCE_FILE): return 'brsapi'
+    if not os.path.exists(SOURCE_FILE):
+        return 'brsapi'
     return open(SOURCE_FILE).read().strip()
 
-def get_data_from_brsapi():
+def get_brsapi_data():
     api_key = os.environ.get("BRSAPI_KEY", "Free5VSOryjPh51wo8o6tltHkv0DhsE8")
-    url = f"https://brsapi.ir/api/v1/stock-info/نوری"
+    url = "https://brsapi.ir/api/v1/stock-info/46602927695631802"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "User-Agent": "Mozilla/5.0"
     }
     try:
-        r = requests.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
-        return r.json()
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        return response.json()
     except requests.RequestException as e:
         bot.send_message(chat_id=CHAT_ID, text=f"🚨 خطا در BrsApi (نوری):\nآدرس: {url}\nخطا: {e}")
         return None
 
-def get_data_from_other():
-    url = "https://example.com/your-limited-api"  # جایگزین کن
+def get_other_data():
+    url = "https://example.com/api/other-source"  # جایگزین کن
     try:
         r = requests.get(url, timeout=10)
         r.raise_for_status()
@@ -52,11 +56,11 @@ def get_data_from_other():
         return None
 
 def get_data():
-    s = load_selected_source()
-    if s == 'brsapi':
-        return get_data_from_brsapi()
-    elif s == 'other':
-        return get_data_from_other()
+    src = load_selected_source()
+    if src == 'brsapi':
+        return get_brsapi_data()
+    elif src == 'other':
+        return get_other_data()
     else:
         return None
 
@@ -114,9 +118,6 @@ def main_menu(update, context):
         update.message.reply_text("منوی انتخاب منبع:", reply_markup=markup)
     else:
         context.bot.send_message(chat_id=update.effective_chat.id, text="منوی انتخاب منبع:", reply_markup=markup)
-
-def sources_menu(update, context):
-    main_menu(update, context)
 
 def status(update, context):
     global last_check_time, market_open
