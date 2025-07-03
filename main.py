@@ -110,11 +110,11 @@ def button(update, context):
     query = update.callback_query
     query.answer()
     if query.data == 'status':
-        status(update=query, context=context)
+        status(update=query.message, context=context)
     elif query.data == 'reset':
-        reset(update=query, context=context)
+        reset(update=query.message, context=context)
     elif query.data == 'start':
-        start(update=query, context=context)
+        start(update=query.message, context=context)
     else:
         query.edit_message_text(text="دستور نامعتبر")
 
