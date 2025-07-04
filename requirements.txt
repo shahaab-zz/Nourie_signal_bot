@@ -1,5 +1,6 @@
-flask
-requests
-beautifulsoup4
 python-telegram-bot==13.15
+Flask
+requests
 pandas
+pytz
+openpyxl
