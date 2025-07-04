@@ -7,7 +7,7 @@ from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, Updater
 from datetime import datetime, time as dtime
 
-# تنظیمات اصلی
+# --- تنظیمات اصلی ---
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
 SELECTED_SOURCE = "brsapi"
@@ -20,12 +20,12 @@ last_check_time = None
 market_open = False
 check_thread_running = True
 
-# بررسی زمان بازار
+# --- بررسی باز بودن بازار ---
 def is_market_open():
     now = datetime.now().time()
     return (dtime(9, 0) <= now <= dtime(12, 30)) or (dtime(13, 30) <= now <= dtime(15, 0))
 
-# دریافت داده از BRSAPI
+# --- دریافت داده از BRSAPI ---
 def get_brsapi_data():
     url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -36,8 +36,8 @@ def get_brsapi_data():
     except Exception as e:
         return None, url, str(e)
 
-# بررسی سیگنال ورود برای نماد نوری
-def check_nouri_signal(data):
+# --- بررسی سیگنال ورود با جزئیات ---
+def check_nouri_signal_verbose(data):
     try:
         for item in data:
             if item.get("LVal18AFC") == "نوری":
@@ -47,13 +47,23 @@ def check_nouri_signal(data):
                 last = float(item.get("PDrCotVal", 0))
                 close = float(item.get("PClosing", 0))
 
-                if vol > 500000 and last > close and buy_ind > sell_ind:
-                    return True, item
-        return False, None
-    except:
-        return False, None
+                cond1 = vol > 500000
+                cond2 = last > close
+                cond3 = buy_ind > sell_ind
 
-# بررسی بازار و سیگنال به صورت خودکار
+                all_pass = cond1 and cond2 and cond3
+
+                message = "📊 بررسی شرایط سیگنال ورود نوری:\n"
+                message += f"{'✅' if cond1 else '❌'} حجم معاملات > ۵۰۰٬۰۰۰ (مقدار: {vol})\n"
+                message += f"{'✅' if cond2 else '❌'} قیمت آخرین معامله > قیمت پایانی ({last} > {close})\n"
+                message += f"{'✅' if cond3 else '❌'} خرید حقیقی > فروش حقیقی ({buy_ind} > {sell_ind})\n"
+
+                return all_pass, message
+        return False, "نماد نوری یافت نشد."
+    except Exception as e:
+        return False, f"❌ خطا در پردازش اطلاعات: {str(e)}"
+
+# --- بررسی بازار و ارسال نوتیفیکیشن ---
 def check_market_and_notify():
     global last_check_time, market_open, check_thread_running
     while check_thread_running:
@@ -66,7 +76,7 @@ def check_market_and_notify():
             if error:
                 bot.send_message(chat_id=CHAT_ID, text=f"🚨 خطا در اتصال به {SELECTED_SOURCE}: {error}")
             else:
-                signal, info = check_nouri_signal(data)
+                signal, _ = check_nouri_signal_verbose(data)
                 if signal:
                     bot.send_message(chat_id=CHAT_ID, text="🚀 سیگنال ورود به نوری شناسایی شد!")
 
@@ -80,27 +90,27 @@ def check_market_and_notify():
 
         time.sleep(120)
 
-# بررسی دستی سیگنال
+# --- بررسی دستی سیگنال ---
 def manual_check(update, context):
     data, url, error = get_brsapi_data()
     chat_id = update.effective_chat.id
     if error:
         context.bot.send_message(chat_id=chat_id, text=f"❌ خطا در اتصال: {error}")
         return
-    signal, info = check_nouri_signal(data)
+    signal, explanation = check_nouri_signal_verbose(data)
+    context.bot.send_message(chat_id=chat_id, text=explanation)
     if signal:
-        context.bot.send_message(chat_id=chat_id, text="🚀 سیگنال ورود به نوری شناسایی شد!")
+        context.bot.send_message(chat_id=chat_id, text="🚀 سیگنال ورود تایید شد!")
     else:
-        context.bot.send_message(chat_id=chat_id, text="📉 هنوز سیگنال ورود وجود ندارد.")
+        context.bot.send_message(chat_id=chat_id, text="📉 هنوز سیگنال ورود کامل نیست.")
 
-# توقف بررسی خودکار
+# --- توقف و فعال‌سازی مجدد بررسی ---
 def stop_check(update, context):
     global check_thread_running
     check_thread_running = False
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text="⏹ بررسی خودکار متوقف شد.")
 
-# فعال‌سازی مجدد بررسی خودکار
 def resume_check(update, context):
     global check_thread_running
     if not check_thread_running:
@@ -111,7 +121,7 @@ def resume_check(update, context):
     else:
         context.bot.send_message(chat_id=update.effective_chat.id, text="✅ بررسی خودکار از قبل فعال بوده است.")
 
-# بررسی وضعیت ارتباط و بازار
+# --- بررسی وضعیت بازار و اتصال ---
 def status(update, context):
     global last_check_time
     chat_id = update.effective_chat.id
@@ -124,6 +134,7 @@ def status(update, context):
         context.bot.send_message(chat_id=chat_id, text="✅ اتصال برقرار است.")
     context.bot.send_message(chat_id=chat_id, text=f"🕓 آخرین بررسی: {last_check_time}\n📈 بازار: {market}\n📡 منبع داده: {SELECTED_SOURCE}")
 
+# --- فلَسک روت‌ها ---
 @app.route('/', methods=['GET'])
 def home():
     return "ربات نوری فعال است."
@@ -134,11 +145,13 @@ def webhook():
     dispatcher.process_update(update)
     return 'ok'
 
+# --- فرمان شروع ---
 def start(update, context):
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text="سلام! ربات نوری فعال است.")
     show_menu(update, context)
 
+# --- منو ---
 def show_menu(update, context):
     keyboard = [
         [InlineKeyboardButton("📊 بررسی دستی سیگنال نوری", callback_data='check_signal')],
@@ -150,6 +163,7 @@ def show_menu(update, context):
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text='یک گزینه را انتخاب کنید:', reply_markup=reply_markup)
 
+# --- هندل کلیک دکمه‌ها ---
 def button(update, context):
     query = update.callback_query
     query.answer()
@@ -164,10 +178,11 @@ def button(update, context):
     else:
         query.edit_message_text(text="دستور نامعتبر")
 
+# --- هندل پیام‌های متنی ---
 def handle_text(update, context):
     show_menu(update, context)
 
-# راه‌اندازی ربات
+# --- راه‌اندازی ربات ---
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
@@ -176,7 +191,6 @@ dispatcher.add_handler(CommandHandler('status', status))
 dispatcher.add_handler(CallbackQueryHandler(button))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_text))
 
-# اجرای بررسی خودکار
 if __name__ == '__main__':
     threading.Thread(target=check_market_and_notify, daemon=True).start()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
