@@ -6,11 +6,8 @@ from flask import Flask, request
 from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, Updater
 from datetime import datetime, time as dtime
-from io import BytesIO
-import json
 
-# تنظیمات اصلی
-
+# --- تنظیمات ---
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
 SELECTED_SOURCE = "brsapi"
@@ -23,14 +20,12 @@ last_check_time = None
 market_open = False
 check_thread_running = True
 
-# بررسی زمان بازار
-
+# بررسی باز بودن بازار
 def is_market_open():
     now = datetime.now().time()
     return (dtime(9, 0) <= now <= dtime(12, 30)) or (dtime(13, 30) <= now <= dtime(15, 0))
 
-# دریافت داده از BRSAPI
-
+# دریافت داده‌ها از brsapi
 def get_brsapi_data():
     url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -41,8 +36,7 @@ def get_brsapi_data():
     except Exception as e:
         return None, url, str(e)
 
-# بررسی سیگنال ورود برای نماد نوری با تحلیل تفکیکی
-
+# بررسی دقیق سیگنال نوری
 def check_nouri_signal_verbose(data):
     try:
         for item in data:
@@ -75,8 +69,7 @@ def check_nouri_signal_verbose(data):
     except Exception as e:
         return False, f"❌ خطا در پردازش اطلاعات: {str(e)}"
 
-# بررسی بازار و سیگنال به صورت خودکار
-
+# بررسی خودکار بازار
 def check_market_and_notify():
     global last_check_time, market_open, check_thread_running
     while check_thread_running:
@@ -89,9 +82,9 @@ def check_market_and_notify():
             if error:
                 bot.send_message(chat_id=CHAT_ID, text=f"🚨 خطا در اتصال به {SELECTED_SOURCE}: {error}")
             else:
-                signal, _ = check_nouri_signal_verbose(data)
+                signal, explanation = check_nouri_signal_verbose(data)
                 if signal:
-                    bot.send_message(chat_id=CHAT_ID, text="🚀 سیگنال ورود به نوری شناسایی شد!")
+                    bot.send_message(chat_id=CHAT_ID, text="🚀 سیگنال ورود به نوری شناسایی شد!\n\n" + explanation)
 
             if not market_open:
                 market_open = True
@@ -104,13 +97,13 @@ def check_market_and_notify():
         time.sleep(120)
 
 # بررسی دستی سیگنال
-
 def manual_check(update, context):
     data, url, error = get_brsapi_data()
     chat_id = update.effective_chat.id
     if error:
         context.bot.send_message(chat_id=chat_id, text=f"❌ خطا در اتصال: {error}")
         return
+
     signal, explanation = check_nouri_signal_verbose(data)
     context.bot.send_message(chat_id=chat_id, text=explanation)
     if signal:
@@ -118,15 +111,12 @@ def manual_check(update, context):
     else:
         context.bot.send_message(chat_id=chat_id, text="📉 هنوز سیگنال ورود کامل نیست.")
 
-# توقف بررسی خودکار
-
+# توقف و فعال‌سازی مجدد
 def stop_check(update, context):
     global check_thread_running
     check_thread_running = False
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text="⏹ بررسی خودکار متوقف شد.")
-
-# فعال‌سازی مجدد بررسی خودکار
 
 def resume_check(update, context):
     global check_thread_running
@@ -138,8 +128,7 @@ def resume_check(update, context):
     else:
         context.bot.send_message(chat_id=chat_id, text="✅ بررسی خودکار از قبل فعال بوده است.")
 
-# بررسی وضعیت اتصال و بازار
-
+# بررسی وضعیت کلی
 def status(update, context):
     global last_check_time
     chat_id = update.effective_chat.id
@@ -152,25 +141,7 @@ def status(update, context):
         context.bot.send_message(chat_id=chat_id, text="✅ اتصال برقرار است.")
     context.bot.send_message(chat_id=chat_id, text=f"🕓 آخرین بررسی: {last_check_time}\n📈 بازار: {market}\n📡 منبع داده: {SELECTED_SOURCE}")
 
-# ارسال فایل JSON
-
-def send_json_file(update, context):
-    chat_id = update.effective_chat.id
-    data, url, error = get_brsapi_data()
-    if error:
-        context.bot.send_message(chat_id=chat_id, text=f"❌ خطا در دریافت داده: {error}")
-        return
-
-    json_str = json.dumps(data, ensure_ascii=False, indent=2)
-    bio = BytesIO()
-    bio.name = "data.json"
-    bio.write(json_str.encode("utf-8"))
-    bio.seek(0)
-
-    context.bot.send_document(chat_id=chat_id, document=bio, filename="data.json", caption="📥 داده‌های JSON دریافت شده از BRSAPI")
-
-# رابط‌های وب
-
+# رابط وب هوک
 @app.route('/', methods=['GET'])
 def home():
     return "ربات نوری فعال است."
@@ -181,8 +152,7 @@ def webhook():
     dispatcher.process_update(update)
     return 'ok'
 
-# منو و دکمه‌ها
-
+# دکمه‌ها و فرمان‌ها
 def start(update, context):
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text="سلام! ربات نوری فعال است.")
@@ -194,7 +164,6 @@ def show_menu(update, context):
         [InlineKeyboardButton("📡 بررسی اتصال و وضعیت بازار", callback_data='status')],
         [InlineKeyboardButton("⏹ توقف بررسی خودکار", callback_data='stop')],
         [InlineKeyboardButton("▶️ فعال‌سازی مجدد بررسی", callback_data='resume')],
-        [InlineKeyboardButton("📥 دانلود داده‌ها (JSON)", callback_data='download_json')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     chat_id = update.effective_chat.id
@@ -211,16 +180,13 @@ def button(update, context):
         resume_check(update, context)
     elif query.data == 'status':
         status(update, context)
-    elif query.data == 'download_json':
-        send_json_file(update, context)
     else:
         query.edit_message_text(text="دستور نامعتبر")
 
 def handle_text(update, context):
     show_menu(update, context)
 
-# راه‌اندازی ربات
-
+# راه‌اندازی ربات تلگرام
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
@@ -229,8 +195,7 @@ dispatcher.add_handler(CommandHandler('status', status))
 dispatcher.add_handler(CallbackQueryHandler(button))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_text))
 
-# اجرای بررسی خودکار
-
+# شروع اجرای بررسی خودکار
 if __name__ == '__main__':
     threading.Thread(target=check_market_and_notify, daemon=True).start()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
