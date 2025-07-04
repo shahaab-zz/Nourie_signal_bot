@@ -100,6 +100,30 @@ def stop_check(update, context):
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text="⏹ بررسی خودکار متوقف شد.")
 
+# فعال‌سازی مجدد بررسی خودکار
+def resume_check(update, context):
+    global check_thread_running
+    if not check_thread_running:
+        check_thread_running = True
+        threading.Thread(target=check_market_and_notify, daemon=True).start()
+        chat_id = update.effective_chat.id
+        context.bot.send_message(chat_id=chat_id, text="▶️ بررسی خودکار دوباره فعال شد.")
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="✅ بررسی خودکار از قبل فعال بوده است.")
+
+# بررسی وضعیت ارتباط و بازار
+def status(update, context):
+    global last_check_time
+    chat_id = update.effective_chat.id
+    open_status = is_market_open()
+    market = 'باز' if open_status else 'بسته'
+    data, url, error = get_brsapi_data()
+    if error:
+        context.bot.send_message(chat_id=chat_id, text=f"🚨 خطا در اتصال به {SELECTED_SOURCE}: {error}\n🌐 {url}")
+    else:
+        context.bot.send_message(chat_id=chat_id, text="✅ اتصال برقرار است.")
+    context.bot.send_message(chat_id=chat_id, text=f"🕓 آخرین بررسی: {last_check_time}\n📈 بازار: {market}\n📡 منبع داده: {SELECTED_SOURCE}")
+
 @app.route('/', methods=['GET'])
 def home():
     return "ربات نوری فعال است."
@@ -118,7 +142,9 @@ def start(update, context):
 def show_menu(update, context):
     keyboard = [
         [InlineKeyboardButton("📊 بررسی دستی سیگنال نوری", callback_data='check_signal')],
+        [InlineKeyboardButton("📡 بررسی اتصال و وضعیت بازار", callback_data='status')],
         [InlineKeyboardButton("⏹ توقف بررسی خودکار", callback_data='stop')],
+        [InlineKeyboardButton("▶️ فعال‌سازی مجدد بررسی", callback_data='resume')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     chat_id = update.effective_chat.id
@@ -131,6 +157,10 @@ def button(update, context):
         manual_check(update, context)
     elif query.data == 'stop':
         stop_check(update, context)
+    elif query.data == 'resume':
+        resume_check(update, context)
+    elif query.data == 'status':
+        status(update, context)
     else:
         query.edit_message_text(text="دستور نامعتبر")
 
@@ -142,6 +172,7 @@ updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 dispatcher.add_handler(CommandHandler('start', start))
+dispatcher.add_handler(CommandHandler('status', status))
 dispatcher.add_handler(CallbackQueryHandler(button))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_text))
 
