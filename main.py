@@ -2,15 +2,17 @@ import os
 import time
 import threading
 import requests
-import pandas as pd
-from flask import Flask, request, send_file
+from flask import Flask, request
 from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, Updater
 from datetime import datetime, time as dtime
 import pytz
-import io
+import json
+import pandas as pd
+from io import BytesIO
 
 # تنظیمات اصلی
+
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
 SELECTED_SOURCE = "brsapi"
@@ -23,23 +25,15 @@ last_check_time = None
 market_open = False
 check_thread_running = True
 
-# منطقه زمانی تهران
-tehran_tz = pytz.timezone('Asia/Tehran')
+# زمان بازار بر اساس ساعت ایران
 
-# بررسی زمان بازار با توجه به ساعت ایران
 def is_market_open():
-    now = datetime.now(tehran_tz).time()
-    morning_start = dtime(9, 0)
-    morning_end = dtime(12, 30)
-    afternoon_start = dtime(13, 30)
-    afternoon_end = dtime(15, 0)
-    # فقط شنبه تا چهارشنبه بازار باز است
-    today = datetime.now(tehran_tz).weekday()  # شنبه=5، جمعه=4 و ...
-    if today in [4, 5, 6]:  # جمعه و تعطیلات آخر هفته بازار بسته
-        return False
-    return (morning_start <= now <= morning_end) or (afternoon_start <= now <= afternoon_end)
+    tz = pytz.timezone('Asia/Tehran')
+    now = datetime.now(tz).time()
+    return (dtime(9, 0) <= now <= dtime(12, 30)) or (dtime(13, 30) <= now <= dtime(15, 0))
 
 # دریافت داده از BRSAPI
+
 def get_brsapi_data():
     url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -50,7 +44,8 @@ def get_brsapi_data():
     except Exception as e:
         return None, url, str(e)
 
-# بررسی سیگنال ورود برای نماد نوری با پیام وضعیت هر شرط
+# بررسی سیگنال ورود برای نماد نوری با جزئیات و پیام شرط‌ها
+
 def check_nouri_signal_verbose(data):
     try:
         for item in data:
@@ -77,11 +72,13 @@ def check_nouri_signal_verbose(data):
     except Exception as e:
         return False, f"❌ خطا در پردازش اطلاعات: {str(e)}"
 
-# بررسی بازار و ارسال نوتیفیکیشن خودکار هر 2 دقیقه
+# بررسی بازار و ارسال نوتیفیکیشن خودکار
+
 def check_market_and_notify():
     global last_check_time, market_open, check_thread_running
     while check_thread_running:
-        now = datetime.now(tehran_tz)
+        tz = pytz.timezone('Asia/Tehran')
+        now = datetime.now(tz)
         last_check_time = now
         open_status = is_market_open()
 
@@ -93,7 +90,6 @@ def check_market_and_notify():
                 signal, _ = check_nouri_signal_verbose(data)
                 if signal:
                     bot.send_message(chat_id=CHAT_ID, text="🚀 سیگنال ورود به نوری شناسایی شد!")
-
             if not market_open:
                 market_open = True
                 bot.send_message(chat_id=CHAT_ID, text="🟢 من فعال شدم. (شروع بازار)")
@@ -104,6 +100,7 @@ def check_market_and_notify():
         time.sleep(120)
 
 # بررسی دستی سیگنال
+
 def manual_check(update, context):
     data, url, error = get_brsapi_data()
     chat_id = update.effective_chat.id
@@ -118,6 +115,7 @@ def manual_check(update, context):
         context.bot.send_message(chat_id=chat_id, text="📉 هنوز سیگنال ورود کامل نیست.")
 
 # توقف بررسی خودکار
+
 def stop_check(update, context):
     global check_thread_running
     check_thread_running = False
@@ -125,17 +123,19 @@ def stop_check(update, context):
     context.bot.send_message(chat_id=chat_id, text="⏹ بررسی خودکار متوقف شد.")
 
 # فعال‌سازی مجدد بررسی خودکار
+
 def resume_check(update, context):
     global check_thread_running
+    chat_id = update.effective_chat.id
     if not check_thread_running:
         check_thread_running = True
         threading.Thread(target=check_market_and_notify, daemon=True).start()
-        chat_id = update.effective_chat.id
         context.bot.send_message(chat_id=chat_id, text="▶️ بررسی خودکار دوباره فعال شد.")
     else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="✅ بررسی خودکار از قبل فعال بوده است.")
+        context.bot.send_message(chat_id=chat_id, text="✅ بررسی خودکار از قبل فعال بوده است.")
 
 # بررسی وضعیت اتصال و بازار
+
 def status(update, context):
     global last_check_time
     chat_id = update.effective_chat.id
@@ -148,52 +148,57 @@ def status(update, context):
         context.bot.send_message(chat_id=chat_id, text="✅ اتصال برقرار است.")
     context.bot.send_message(chat_id=chat_id, text=f"🕓 آخرین بررسی: {last_check_time}\n📈 بازار: {market}\n📡 منبع داده: {SELECTED_SOURCE}")
 
-# ارسال فایل JSON کامل دیتا
-def send_json(update, context):
+# دانلود فایل JSON
+
+def download_json(update, context):
     data, url, error = get_brsapi_data()
     chat_id = update.effective_chat.id
     if error:
-        context.bot.send_message(chat_id=chat_id, text=f"❌ خطا در دریافت JSON: {error}")
+        context.bot.send_message(chat_id=chat_id, text=f"❌ خطا در دریافت داده: {error}")
         return
-    json_str = requests.utils.json.dumps(data, ensure_ascii=False)
-    bio = io.BytesIO()
+    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    bio = BytesIO()
+    bio.name = "data.json"
     bio.write(json_str.encode('utf-8'))
     bio.seek(0)
-    context.bot.send_document(chat_id=chat_id, document=bio, filename="data.json")
+    context.bot.send_document(chat_id=chat_id, document=bio)
 
-# ارسال فایل اکسل فقط نماد نوری
-def send_excel(update, context):
+# دانلود اکسل فقط نوری
+
+def download_nouri_excel(update, context):
     data, url, error = get_brsapi_data()
     chat_id = update.effective_chat.id
     if error:
-        context.bot.send_message(chat_id=chat_id, text=f"❌ خطا در دریافت داده‌ها: {error}")
+        context.bot.send_message(chat_id=chat_id, text=f"❌ خطا در دریافت داده: {error}")
         return
-    # استخراج داده نوری
-    nouri_data = [item for item in data if item.get("l18") == "نوری"]
-    if not nouri_data:
-        context.bot.send_message(chat_id=chat_id, text="❌ نماد نوری در داده‌ها یافت نشد.")
+    nouri_items = [item for item in data if item.get("l18") == "نوری"]
+    if not nouri_items:
+        context.bot.send_message(chat_id=chat_id, text="نماد نوری در داده‌ها یافت نشد.")
         return
-    df = pd.DataFrame(nouri_data)
-    bio = io.BytesIO()
+    df = pd.DataFrame(nouri_items)
+    bio = BytesIO()
+    bio.name = "nouri.xlsx"
     df.to_excel(bio, index=False)
     bio.seek(0)
-    context.bot.send_document(chat_id=chat_id, document=bio, filename="nouri.xlsx")
+    context.bot.send_document(chat_id=chat_id, document=bio)
 
-# منوی اصلی ربات
+# منو و دکمه‌ها
+
 def show_menu(update, context):
     keyboard = [
         [InlineKeyboardButton("📊 بررسی دستی سیگنال نوری", callback_data='check_signal')],
         [InlineKeyboardButton("📡 بررسی اتصال و وضعیت بازار", callback_data='status')],
         [InlineKeyboardButton("⏹ توقف بررسی خودکار", callback_data='stop')],
         [InlineKeyboardButton("▶️ فعال‌سازی مجدد بررسی", callback_data='resume')],
-        [InlineKeyboardButton("📥 دانلود JSON کامل", callback_data='download_json')],
-        [InlineKeyboardButton("📥 دانلود Excel نوری", callback_data='download_excel')]
+        [InlineKeyboardButton("📥 دانلود JSON داده‌ها", callback_data='download_json')],
+        [InlineKeyboardButton("📥 دانلود اکسل نوری", callback_data='download_nouri_excel')]
     ]
-    chat_id = update.effective_chat.id
     reply_markup = InlineKeyboardMarkup(keyboard)
+    chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text='یک گزینه را انتخاب کنید:', reply_markup=reply_markup)
 
 # هندلر دکمه‌ها
+
 def button(update, context):
     query = update.callback_query
     query.answer()
@@ -206,15 +211,25 @@ def button(update, context):
     elif query.data == 'status':
         status(update, context)
     elif query.data == 'download_json':
-        send_json(update, context)
-    elif query.data == 'download_excel':
-        send_excel(update, context)
+        download_json(update, context)
+    elif query.data == 'download_nouri_excel':
+        download_nouri_excel(update, context)
     else:
         query.edit_message_text(text="دستور نامعتبر")
 
-# پاسخ به متن
+# هندلر متن عادی
+
 def handle_text(update, context):
     show_menu(update, context)
+
+# شروع ربات
+
+def start(update, context):
+    chat_id = update.effective_chat.id
+    context.bot.send_message(chat_id=chat_id, text="سلام! ربات نوری فعال است.")
+    show_menu(update, context)
+
+# وب‌هوک و مسیر اصلی
 
 @app.route('/', methods=['GET'])
 def home():
@@ -226,7 +241,8 @@ def webhook():
     dispatcher.process_update(update)
     return 'ok'
 
-# راه‌اندازی ربات
+# راه‌اندازی Updater و Dispatcher
+
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
@@ -235,10 +251,7 @@ dispatcher.add_handler(CommandHandler('status', status))
 dispatcher.add_handler(CallbackQueryHandler(button))
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_text))
 
-def start(update, context):
-    chat_id = update.effective_chat.id
-    context.bot.send_message(chat_id=chat_id, text="سلام! ربات نوری فعال است.")
-    show_menu(update, context)
+# اجرای چک خودکار در یک Thread جداگانه
 
 if __name__ == '__main__':
     threading.Thread(target=check_market_and_notify, daemon=True).start()
