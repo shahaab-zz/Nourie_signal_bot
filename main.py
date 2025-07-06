@@ -231,4 +231,43 @@ def button(update: Update, context):
             query.edit_message_text("❌ داده نوری یافت نشد، امکان ساخت فایل Excel نیست.")
             return
         bio.name = "nouri.xlsx"
-        bot.send_document(chat
+        bot.send_document(chat_id=query.message.chat.id, document=bio)
+        query.edit_message_text("✅ فایل Excel نوری ارسال شد.")
+
+    elif data == "stop_auto":
+        if check_thread_running:
+            check_thread_running = False
+            query.edit_message_text("🛑 بررسی خودکار متوقف شد.")
+        else:
+            query.edit_message_text("🟢 بررسی خودکار در حال حاضر فعال نیست.")
+
+    elif data == "start_auto":
+        if not check_thread_running:
+            check_thread_running = True
+            threading.Thread(target=check_and_notify, daemon=True).start()
+            query.edit_message_text("▶️ بررسی خودکار فعال شد.")
+        else:
+            query.edit_message_text("🟢 بررسی خودکار قبلا فعال بوده.")
+
+def main():
+    dispatcher = Dispatcher(bot, None, use_context=True)
+    dispatcher.add_handler(CommandHandler('start', start))
+    dispatcher.add_handler(CallbackQueryHandler(button))
+    from flask import request
+
+    @app.route('/', methods=['GET', 'POST'])
+    def webhook():
+        update = Update.de_json(request.get_json(force=True), bot)
+        dispatcher.process_update(update)
+        return 'ok'
+
+    # شروع بررسی خودکار در ترد جداگانه
+    global check_thread_running
+    if not check_thread_running:
+        check_thread_running = True
+        threading.Thread(target=check_and_notify, daemon=True).start()
+
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+if __name__ == '__main__':
+    main()
