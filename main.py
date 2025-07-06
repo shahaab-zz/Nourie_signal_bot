@@ -1,3 +1,4 @@
+import os
 import json
 import requests
 import pytz
@@ -12,7 +13,8 @@ from telegram.ext import CommandHandler, CallbackContext, Updater, CallbackQuery
 # -------------------- اطلاعات اتصال --------------------
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = 52909831
-RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTE4MjE1MDEsImp0aSI6IjVmOTc3ZDA3YWY5ODQ0ODBiY2IzMzBlM2NlZTBjNjM0Iiwic3ViIjoiMTc4MTE4MyIsIm5iZiI6MTc1MTgyMTUwMSwiZXhwIjoxNzU5NTk3NTYxLCJpc3MiOiJjb20ubWFibmFkcC5hcGkucmFoYXZhcmQzNjUudjEifQ.nWrNfmZvFXfjBylDhaDq6yT1Tirdk4yyXXyVUJ7-TnHF2NzRIhRH08trAD82Fm3Mm3rAJOadN1RbeFe05tQIRECe68oyGKgKOS4cst0fRUfDr-AHDZHOPNYY6MPpshe18_vueFoNWkahPpLNxbx7obIMT_elK_2UALMKDxh1BL8mTYSquJoo3xwfscUT55GPi9X0hMxUu_igXcoC-ZoKEDji4nqcYmUZ7UKJ9yreb0hIN_uu5I3KH8hGFOETBx39z7WjK2KwwcFs3J2K-FrefExkd1ynsrxgHbbiaWyNbWil5o7CP13SZ3P9PYjNPZqabGQzMl07wP4V6NbIEPEjDw"
+BRSAPI_KEY = os.environ.get("BRSAPI_KEY")  # توکن brsapi را از متغیر محیطی می‌خوانیم
 
 # -------------------- تنظیمات --------------------
 CHECK_INTERVAL = 600  # ثانیه (۱۰ دقیقه)
@@ -38,13 +40,18 @@ def is_market_open():
 def get_data_brsapi():
     try:
         url = "https://api.brsapi.com/api/series/daily/stock/نوری"
-        response = requests.get(url)
+        headers = {
+            "Authorization": f"Bearer {BRSAPI_KEY}"
+        }
+        response = requests.get(url, headers=headers)
         if response.status_code == 429:
             return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
+        elif response.status_code != 200:
+            return None, f"⛔ خطا در دریافت داده از brsapi: وضعیت {response.status_code}"
         data = response.json()
         return data, None
-    except:
-        return None, "⛔ خطا در اتصال به brsapi"
+    except Exception as e:
+        return None, f"⛔ خطا در اتصال به brsapi: {e}"
 
 def get_data_rahavard():
     try:
@@ -58,9 +65,11 @@ def get_data_rahavard():
         res = requests.get(url, headers=headers)
         if res.status_code == 401:
             return None, "⛔ توکن رهاورد معتبر نیست"
+        elif res.status_code != 200:
+            return None, f"⛔ خطا در دریافت داده از rahavard: وضعیت {res.status_code}"
         return res.json(), None
-    except:
-        return None, "⛔ خطا در اتصال به rahavard"
+    except Exception as e:
+        return None, f"⛔ خطا در اتصال به rahavard: {e}"
 
 def extract_last_candle(data):
     if SELECTED_SOURCE == "brsapi":
@@ -171,6 +180,8 @@ def button(update: Update, context: CallbackContext):
 def auto_loop():
     while True:
         if AUTO_CHECK and is_market_open():
+            # دقت کنید Update و CallbackContext صحیح نیست، فقط جهت ارسال پیام
+            bot.send_message(chat_id=CHAT_ID, text="⏳ در حال بررسی خودکار...")
             send_status(Update.de_json({}, None), CallbackContext.from_update(None))
         time.sleep(CHECK_INTERVAL)
 
