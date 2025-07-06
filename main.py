@@ -1,4 +1,3 @@
-import os
 import json
 import requests
 import pytz
@@ -9,12 +8,13 @@ import pandas as pd
 from io import BytesIO
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, Updater, CallbackQueryHandler
+import os
 
 # -------------------- اطلاعات اتصال --------------------
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = 52909831
-RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTE4MjE1MDEsImp0aSI6IjVmOTc3ZDA3YWY5ODQ0ODBiY2IzMzBlM2NlZTBjNjM0Iiwic3ViIjoiMTc4MTE4MyIsIm5iZiI6MTc1MTgyMTUwMSwiZXhwIjoxNzU5NTk3NTYxLCJpc3MiOiJjb20ubWFibmFkcC5hcGkucmFoYXZhcmQzNjUudjEifQ.nWrNfmZvFXfjBylDhaDq6yT1Tirdk4yyXXyVUJ7-TnHF2NzRIhRH08trAD82Fm3Mm3rAJOadN1RbeFe05tQIRECe68oyGKgKOS4cst0fRUfDr-AHDZHOPNYY6MPpshe18_vueFoNWkahPpLNxbx7obIMT_elK_2UALMKDxh1BL8mTYSquJoo3xwfscUT55GPi9X0hMxUu_igXcoC-ZoKEDji4nqcYmUZ7UKJ9yreb0hIN_uu5I3KH8hGFOETBx39z7WjK2KwwcFs3J2K-FrefExkd1ynsrxgHbbiaWyNbWil5o7CP13SZ3P9PYjNPZqabGQzMl07wP4V6NbIEPEjDw"
-BRSAPI_KEY = os.environ.get("BRSAPI_KEY")  # توکن brsapi را از متغیر محیطی می‌خوانیم
+RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."  # توکن کامل رهاورد
+BRSAPI_KEY = os.getenv("BRSAPI_KEY")  # توکن brsapi از محیط
 
 # -------------------- تنظیمات --------------------
 CHECK_INTERVAL = 600  # ثانیه (۱۰ دقیقه)
@@ -29,29 +29,22 @@ def now_tehran():
 def is_market_open():
     now = now_tehran()
     return now.weekday() < 5 and (
-        now.hour > ACTIVE_HOURS[0] or
-        (now.hour == ACTIVE_HOURS[0] and now.minute >= 0)
+        (now.hour > ACTIVE_HOURS[0]) or (now.hour == ACTIVE_HOURS[0] and now.minute >= 0)
     ) and (
-        now.hour < ACTIVE_HOURS[1] or
-        (now.hour == ACTIVE_HOURS[1] and now.minute <= ACTIVE_HOURS[2])
+        (now.hour < ACTIVE_HOURS[1]) or (now.hour == ACTIVE_HOURS[1] and now.minute <= ACTIVE_HOURS[2])
     )
 
 # -------------------- دریافت داده --------------------
 def get_data_brsapi():
     try:
-        url = "https://api.brsapi.com/api/series/daily/stock/نوری"
-        headers = {
-            "Authorization": f"Bearer {BRSAPI_KEY}"
-        }
-        response = requests.get(url, headers=headers)
+        url = f"https://api.brsapi.com/api/series/daily/stock/نوری?token={BRSAPI_KEY}"
+        response = requests.get(url)
         if response.status_code == 429:
             return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
-        elif response.status_code != 200:
-            return None, f"⛔ خطا در دریافت داده از brsapi: وضعیت {response.status_code}"
         data = response.json()
         return data, None
-    except Exception as e:
-        return None, f"⛔ خطا در اتصال به brsapi: {e}"
+    except:
+        return None, "⛔ خطا در اتصال به brsapi"
 
 def get_data_rahavard():
     try:
@@ -65,11 +58,9 @@ def get_data_rahavard():
         res = requests.get(url, headers=headers)
         if res.status_code == 401:
             return None, "⛔ توکن رهاورد معتبر نیست"
-        elif res.status_code != 200:
-            return None, f"⛔ خطا در دریافت داده از rahavard: وضعیت {res.status_code}"
         return res.json(), None
-    except Exception as e:
-        return None, f"⛔ خطا در اتصال به rahavard: {e}"
+    except:
+        return None, "⛔ خطا در اتصال به rahavard"
 
 def extract_last_candle(data):
     if SELECTED_SOURCE == "brsapi":
@@ -180,9 +171,15 @@ def button(update: Update, context: CallbackContext):
 def auto_loop():
     while True:
         if AUTO_CHECK and is_market_open():
-            # دقت کنید Update و CallbackContext صحیح نیست، فقط جهت ارسال پیام
-            bot.send_message(chat_id=CHAT_ID, text="⏳ در حال بررسی خودکار...")
-            send_status(Update.de_json({}, None), CallbackContext.from_update(None))
+            # برای ارسال پیام خودکار باید یک شی Update و Context معتبر ساخت یا از روش زیر استفاده کرد:
+            # چون در حلقه مستقل هستیم، ارسال مستقیم پیام:
+            msg, data = check_signal()
+            prefix = "📡 بررسی خودکار:\n"
+            msg = prefix + msg
+            msg += f"\n\n🕓 آخرین بررسی: {now_tehran()}\n📈 بازار: {'باز' if is_market_open() else 'بسته'}\n📡 منبع داده: {SELECTED_SOURCE}"
+            bot.send_message(chat_id=CHAT_ID, text=msg)
+            if data:
+                send_excel_and_json(bot, CHAT_ID, data)
         time.sleep(CHECK_INTERVAL)
 
 # -------------------- اجرا --------------------
