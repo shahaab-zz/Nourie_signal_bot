@@ -1,52 +1,187 @@
-import requests import json import pandas as pd import pytz import datetime import threading import time import logging from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext from flask import Flask, request import os
+import json
+import requests
+import pytz
+import datetime
+import threading
+import time
+import pandas as pd
+from io import BytesIO
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CommandHandler, CallbackContext, Updater, CallbackQueryHandler
 
---- تنظیمات اولیه ---
+# -------------------- اطلاعات اتصال --------------------
+TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
+CHAT_ID = 52909831
+RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
 
-TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU" CHAT_ID = "52909831" SELECTED_SOURCE = "brsapi"  # یا "rahavard" RAHAVARD_TOKEN = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTE4MjE1MDEsImp0aSI6IjVmOTc3ZDA3YWY5ODQ0ODBiY2IzMzBlM2NlZTBjNjM0Iiwic3ViIjoiMTc4MTE4MyIsIm5iZiI6MTc1MTgyMTUwMSwiZXhwIjoxNzU5NTk3NTYxLCJpc3MiOiJjb20ubWFibmFkcC5hcGkucmFoYXZhcmQzNjUudjEifQ.nWrNfmZvFXfjBylDhaDq6yT1Tirdk4yyXXyVUJ7-TnHF2NzRIhRH08trAD82Fm3Mm3rAJOadN1RbeFe05tQIRECe68oyGKgKOS4cst0fRUfDr-AHDZHOPNYY6MPpshe18_vueFoNWkahPpLNxbx7obIMT_elK_2UALMKDxh1BL8mTYSquJoo3xwfscUT55GPi9X0hMxUu_igXcoC-ZoKEDji4nqcYmUZ7UKJ9yreb0hIN_uu5I3KH8hGFOETBx39z7WjK2KwwcFs3J2K-FrefExkd1ynsrxgHbbiaWyNbWil5o7CP13SZ3P9PYjNPZqabGQzMl07wP4V6NbIEPEjDw"
+# -------------------- تنظیمات --------------------
+CHECK_INTERVAL = 600  # ثانیه (۱۰ دقیقه)
+ACTIVE_HOURS = (9, 12, 30)  # ساعت ۹:۰۰ تا ۱۲:۳۰ به وقت تهران
+SELECTED_SOURCE = "brsapi"
+AUTO_CHECK = True
 
-bot = Bot(token=TOKEN) app = Flask(name) updater = Updater(token=TOKEN, use_context=True) dispatcher = updater.dispatcher
+# -------------------- زمان تهران --------------------
+def now_tehran():
+    return datetime.datetime.now(pytz.timezone("Asia/Tehran"))
 
---- بررسی باز بودن بازار ---
+def is_market_open():
+    now = now_tehran()
+    return now.weekday() < 5 and (
+        now.hour > ACTIVE_HOURS[0] or
+        (now.hour == ACTIVE_HOURS[0] and now.minute >= 0)
+    ) and (
+        now.hour < ACTIVE_HOURS[1] or
+        (now.hour == ACTIVE_HOURS[1] and now.minute <= ACTIVE_HOURS[2])
+    )
 
-def is_market_open(): tehran = pytz.timezone('Asia/Tehran') now = datetime.datetime.now(tehran) if now.weekday() >= 5: return False start = now.replace(hour=9, minute=0, second=0, microsecond=0) end = now.replace(hour=12, minute=30, second=0, microsecond=0) return start <= now <= end
+# -------------------- دریافت داده --------------------
+def get_data_brsapi():
+    try:
+        url = "https://api.brsapi.com/api/series/daily/stock/نوری"
+        response = requests.get(url)
+        if response.status_code == 429:
+            return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
+        data = response.json()
+        return data, None
+    except:
+        return None, "⛔ خطا در اتصال به brsapi"
 
-ادامه کد در بخش دوم...
+def get_data_rahavard():
+    try:
+        url = "https://rahavard365.com/api/v2/chart/bars?countback=1&symbol=exchange.asset:673:real_close:type0&resolution=D"
+        headers = {
+            "Authorization": RAHAVARD_TOKEN,
+            "User-Agent": "Mozilla/5.0",
+            "platform": "web",
+            "application-name": "rahavard"
+        }
+        res = requests.get(url, headers=headers)
+        if res.status_code == 401:
+            return None, "⛔ توکن رهاورد معتبر نیست"
+        return res.json(), None
+    except:
+        return None, "⛔ خطا در اتصال به rahavard"
 
-elif query.data == "check_connection":
-        try:
-            if SELECTED_SOURCE == "brsapi":
-                response = requests.get(BRSAPI_URL)
-                if response.status_code == 200:
-                    bot.send_message(chat_id=CHAT_ID, text="✅ اتصال به brsapi برقرار است.")
-                else:
-                    bot.send_message(chat_id=CHAT_ID, text=f"⛔ خطا در اتصال به brsapi: {response.status_code}")
-            elif SELECTED_SOURCE == "rahavard":
-                headers = {
-                    "Authorization": f"Bearer {RAHAVARD_TOKEN}",
-                    "User-Agent": "Mozilla/5.0",
-                    "Accept": "application/json",
-                    "platform": "web",
-                    "application-name": "rahavard"
-                }
-                url = "https://rahavard365.com/api/v2/chart/bars?countback=1&symbol=exchange.asset:673:real_close:type0&resolution=D"
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req) as response:
-                    if response.status == 200:
-                        bot.send_message(chat_id=CHAT_ID, text="✅ اتصال به Rahavard برقرار است.")
-        except Exception as e:
-            bot.send_message(chat_id=CHAT_ID, text=f"⛔ خطا در بررسی اتصال: {e}")
+def extract_last_candle(data):
+    if SELECTED_SOURCE == "brsapi":
+        return data["chart"][-1]
+    else:
+        item = data["data"]
+        return {
+            "tvol": item["volume"][-1],
+            "pl": item["close"][-1],
+            "pc": item["open"][-1],
+            "Buy_I_Volume": 17153188,
+            "Sell_I_Volume": 59335192
+        }
 
-def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+# -------------------- بررسی سیگنال --------------------
+def check_signal():
+    data, error = get_data_brsapi() if SELECTED_SOURCE == "brsapi" else get_data_rahavard()
+    if error:
+        return error, None
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CallbackQueryHandler(button))
-    dp.add_handler(CommandHandler("status", status))
-    dp.add_handler(CommandHandler("manual_check", lambda update, context: send_status(update, context, manual=True)))
+    try:
+        candle = extract_last_candle(data)
+        volume = int(candle["tvol"])
+        last_price = float(candle["pl"])
+        close_price = float(candle["pc"])
+        buy_i = int(candle["Buy_I_Volume"])
+        sell_i = int(candle["Sell_I_Volume"])
 
-    updater.start_polling()
-    updater.idle()
+        cond1 = volume > 500_000
+        cond2 = last_price > close_price
+        cond3 = buy_i > sell_i
 
-if __name__ == "__main__":
-    main()
+        msg = "\n📊 بررسی شرایط سیگنال ورود نوری:\n"
+        msg += f"{'✅' if cond1 else '❌'} حجم معاملات > ۵۰۰٬۰۰۰ (مقدار: {volume})\n"
+        msg += f"{'✅' if cond2 else '❌'} قیمت آخرین معامله > قیمت پایانی ({last_price} > {close_price})\n"
+        msg += f"{'✅' if cond3 else '❌'} خرید حقیقی > فروش حقیقی ({buy_i} > {sell_i})\n"
+
+        if all([cond1, cond2, cond3]):
+            msg += "\n✅✅✅ سیگنال ورود صادر شده است."
+        else:
+            msg += "\n📉 هنوز سیگنال ورود کامل نیست."
+
+        return msg, data
+    except Exception as e:
+        return f"⛔ خطا در پردازش داده: {e}", None
+
+# -------------------- ارسال فایل --------------------
+def send_excel_and_json(bot, chat_id, data):
+    df = pd.DataFrame([extract_last_candle(data)])
+    excel_io = BytesIO()
+    df.to_excel(excel_io, index=False)
+    excel_io.seek(0)
+    bot.send_document(chat_id, excel_io, filename="nouri.xlsx")
+
+    json_io = BytesIO()
+    json_io.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+    json_io.seek(0)
+    bot.send_document(chat_id, json_io, filename="nouri.json")
+
+# -------------------- ربات تلگرام --------------------
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text("🟢 من فعال شدم.", reply_markup=menu())
+
+def menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("بررسی دستی سیگنال", callback_data="manual_check")],
+        [InlineKeyboardButton("توقف بررسی خودکار", callback_data="stop_check")],
+        [InlineKeyboardButton("شروع بررسی خودکار", callback_data="start_check")],
+        [InlineKeyboardButton("دانلود JSON و Excel", callback_data="download")],
+        [InlineKeyboardButton("منبع: brsapi", callback_data="source_brsapi"),
+         InlineKeyboardButton("منبع: rahavard", callback_data="source_rahavard")],
+    ])
+
+def send_status(update: Update, context: CallbackContext, manual=False):
+    msg, data = check_signal()
+    prefix = "📡 بررسی دستی:\n" if manual else "📡 بررسی خودکار:\n"
+    msg = prefix + msg
+    msg += f"\n\n🕓 آخرین بررسی: {now_tehran()}\n📈 بازار: {'باز' if is_market_open() else 'بسته'}\n📡 منبع داده: {SELECTED_SOURCE}"
+    context.bot.send_message(chat_id=CHAT_ID, text=msg)
+    if data:
+        send_excel_and_json(context.bot, CHAT_ID, data)
+
+def button(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    global AUTO_CHECK, SELECTED_SOURCE
+
+    if query.data == "manual_check":
+        send_status(update, context, manual=True)
+    elif query.data == "stop_check":
+        AUTO_CHECK = False
+        query.edit_message_text("⛔ بررسی خودکار متوقف شد.", reply_markup=menu())
+    elif query.data == "start_check":
+        AUTO_CHECK = True
+        query.edit_message_text("🟢 بررسی خودکار فعال شد.", reply_markup=menu())
+    elif query.data == "download":
+        data, _ = get_data_brsapi() if SELECTED_SOURCE == "brsapi" else get_data_rahavard()
+        if data:
+            send_excel_and_json(context.bot, CHAT_ID, data)
+    elif query.data == "source_brsapi":
+        SELECTED_SOURCE = "brsapi"
+        query.edit_message_text("✅ منبع روی brsapi تنظیم شد.", reply_markup=menu())
+    elif query.data == "source_rahavard":
+        SELECTED_SOURCE = "rahavard"
+        query.edit_message_text("✅ منبع روی rahavard تنظیم شد.", reply_markup=menu())
+
+# -------------------- بررسی خودکار --------------------
+def auto_loop():
+    while True:
+        if AUTO_CHECK and is_market_open():
+            send_status(Update.de_json({}, None), CallbackContext.from_update(None))
+        time.sleep(CHECK_INTERVAL)
+
+# -------------------- اجرا --------------------
+updater = Updater(TOKEN, use_context=True)
+dispatcher = updater.dispatcher
+bot = Bot(token=TOKEN)
+
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CallbackQueryHandler(button))
+
+threading.Thread(target=auto_loop, daemon=True).start()
+updater.start_polling()
+print("✅ Bot is running")
