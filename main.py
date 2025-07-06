@@ -12,7 +12,7 @@ import os
 
 # -------------------- اطلاعات اتصال --------------------
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
-CHAT_ID = 52909831
+CHAT_ID = "52909831" 
 RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."  # توکن کامل رهاورد
 BRSAPI_KEY = os.getenv("BRSAPI_KEY")  # توکن brsapi از محیط
 
