@@ -37,7 +37,7 @@ def is_market_open():
 # -------------------- دریافت داده --------------------
 def get_data_brsapi():
     try:
-        url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
+        url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key=Free5VSOryjPh51wo8o6tltHkv0DhsE8&type=1"
         response = requests.get(url)
         if response.status_code == 429:
             return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
