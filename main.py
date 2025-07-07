@@ -14,7 +14,7 @@ import os
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
 RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."  # توکن کامل رهاورد
-BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"# os.getenv("BRSAPI_KEY")  # توکن brsapi از محیط
+BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"
 
 # -------------------- تنظیمات --------------------
 CHECK_INTERVAL = 600  # ثانیه (۱۰ دقیقه)
@@ -37,7 +37,7 @@ def is_market_open():
 # -------------------- دریافت داده --------------------
 def get_data_brsapi():
     try:
-        url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key=Free5VSOryjPh51wo8o6tltHkv0DhsE8&type=1"
+        url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
         response = requests.get(url)
         if response.status_code == 429:
             return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
@@ -48,7 +48,7 @@ def get_data_brsapi():
 
 def get_data_rahavard():
     try:
-        url = "https://rahavard365.com/api/v2/chart/bars?countback=1&symbol=exchange.asset:1875:real_close:type0&resolution=D&from=2022-07-06T00:00:00Z&to=2023-10-16T00:00:00Z"
+        url = "https://rahavard365.com/api/v2/chart/bars?countback=1&symbol=exchange.asset:1875:real_close:type0&resolution=D"
         headers = {
             "Authorization": RAHAVARD_TOKEN,
             "User-Agent": "Mozilla/5.0",
@@ -75,7 +75,6 @@ def extract_last_candle(data):
             "Sell_I_Volume": 59335192
         }
 
-# -------------------- بررسی سیگنال --------------------
 def check_signal():
     data, error = get_data_brsapi() if SELECTED_SOURCE == "brsapi" else get_data_rahavard()
     if error:
@@ -107,7 +106,6 @@ def check_signal():
     except Exception as e:
         return f"⛔ خطا در پردازش داده: {e}", None
 
-# -------------------- ارسال فایل --------------------
 def send_excel_and_json(bot, chat_id, data):
     df = pd.DataFrame([extract_last_candle(data)])
     excel_io = BytesIO()
@@ -134,7 +132,7 @@ def menu():
          InlineKeyboardButton("منبع: rahavard", callback_data="source_rahavard")],
     ])
 
-def send_status(update: Update, context: CallbackContext, manual=False):
+def send_status(context: CallbackContext, manual=False):
     msg, data = check_signal()
     prefix = "📡 بررسی دستی:\n" if manual else "📡 بررسی خودکار:\n"
     msg = prefix + msg
@@ -149,7 +147,7 @@ def button(update: Update, context: CallbackContext):
     global AUTO_CHECK, SELECTED_SOURCE
 
     if query.data == "manual_check":
-        send_status(update, context, manual=True)
+        send_status(context, manual=True)
     elif query.data == "stop_check":
         AUTO_CHECK = False
         query.edit_message_text("⛔ بررسی خودکار متوقف شد.", reply_markup=menu())
@@ -171,25 +169,23 @@ def button(update: Update, context: CallbackContext):
 def auto_loop():
     while True:
         if AUTO_CHECK and is_market_open():
-            # برای ارسال پیام خودکار باید یک شی Update و Context معتبر ساخت یا از روش زیر استفاده کرد:
-            # چون در حلقه مستقل هستیم، ارسال مستقیم پیام:
-            msg, data = check_signal()
-            prefix = "📡 بررسی خودکار:\n"
-            msg = prefix + msg
-            msg += f"\n\n🕓 آخرین بررسی: {now_tehran()}\n📈 بازار: {'باز' if is_market_open() else 'بسته'}\n📡 منبع داده: {SELECTED_SOURCE}"
-            bot.send_message(chat_id=CHAT_ID, text=msg)
-            if data:
-                send_excel_and_json(bot, CHAT_ID, data)
+            try:
+                send_status(context=CallbackContext.from_bot(bot), manual=False)
+            except Exception as e:
+                print("⛔ خطا در بررسی خودکار:", e)
         time.sleep(CHECK_INTERVAL)
 
 # -------------------- اجرا --------------------
-updater = Updater(TOKEN, use_context=True)
-dispatcher = updater.dispatcher
 bot = Bot(token=TOKEN)
+updater = Updater(bot=bot, use_context=True)
+dispatcher = updater.dispatcher
 
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CallbackQueryHandler(button))
 
+# اجرای بررسی خودکار در ترد جداگانه
 threading.Thread(target=auto_loop, daemon=True).start()
+
+# شروع ربات
 updater.start_polling()
 print("✅ Bot is running")
