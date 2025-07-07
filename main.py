@@ -1,25 +1,24 @@
-# ✅ بخش ۱: تنظیمات و دریافت داده‌ها (webhook + Flask)
-
-import os
 import json
 import requests
 import pytz
 import datetime
+import threading
+import time
 import pandas as pd
 from io import BytesIO
-from flask import Flask, request
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Dispatcher, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.ext import CommandHandler, CallbackContext, Updater, CallbackQueryHandler
+import os
 
 # -------------------- اطلاعات اتصال --------------------
 TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
-RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-BRSAPI_KEY = os.getenv("BRSAPI_KEY", "Free5VSOryjPh51wo8o6tltHkv0DhsE8")
+RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."  # توکن کامل رهاورد
+BRSAPI_KEY = "Free5VSOryjPh51wo8o6tltHkv0DhsE8"  # یا os.getenv("BRSAPI_KEY")
 
 # -------------------- تنظیمات --------------------
-CHECK_INTERVAL = 600
-ACTIVE_HOURS = (9, 12, 30)
+CHECK_INTERVAL = 600  # هر ۱۰ دقیقه
+ACTIVE_HOURS = (9, 12, 30)  # ساعت کاری بازار
 SELECTED_SOURCE = "brsapi"
 AUTO_CHECK = True
 
@@ -42,7 +41,8 @@ def get_data_brsapi():
         response = requests.get(url)
         if response.status_code == 429:
             return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
-        return response.json(), None
+        data = response.json()
+        return data, None
     except:
         return None, "⛔ خطا در اتصال به brsapi"
 
@@ -74,38 +74,7 @@ def extract_last_candle(data):
             "Buy_I_Volume": 17153188,
             "Sell_I_Volume": 59335192
         }
-
-def check_signal():
-    data, error = get_data_brsapi() if SELECTED_SOURCE == "brsapi" else get_data_rahavard()
-    if error:
-        return error, None
-
-    try:
-        candle = extract_last_candle(data)
-        volume = int(candle["tvol"])
-        last_price = float(candle["pl"])
-        close_price = float(candle["pc"])
-        buy_i = int(candle["Buy_I_Volume"])
-        sell_i = int(candle["Sell_I_Volume"])
-
-        cond1 = volume > 500_000
-        cond2 = last_price > close_price
-        cond3 = buy_i > sell_i
-
-        msg = "\n📊 بررسی شرایط سیگنال ورود نوری:\n"
-        msg += f"{'✅' if cond1 else '❌'} حجم > ۵۰۰٬۰۰۰ ({volume})\n"
-        msg += f"{'✅' if cond2 else '❌'} آخرین > پایانی ({last_price} > {close_price})\n"
-        msg += f"{'✅' if cond3 else '❌'} خرید حقیقی > فروش ({buy_i} > {sell_i})\n"
-
-        if all([cond1, cond2, cond3]):
-            msg += "\n✅✅✅ سیگنال ورود صادر شده است."
-        else:
-            msg += "\n📉 هنوز سیگنال ورود کامل نیست."
-
-        return msg, data
-    except Exception as e:
-        return f"⛔ خطا در پردازش داده: {e}", None
-# -------------------- بررسی سیگنال --------------------
+        # -------------------- بررسی سیگنال --------------------
 def check_signal():
     data, error = get_data_brsapi() if SELECTED_SOURCE == "brsapi" else get_data_rahavard()
     if error:
@@ -164,20 +133,14 @@ def menu():
          InlineKeyboardButton("منبع: rahavard", callback_data="source_rahavard")],
     ])
 
-def send_status(update: Update = None, context: CallbackContext = None, manual=False):
+def send_status(update: Update, context: CallbackContext, manual=False):
     msg, data = check_signal()
     prefix = "📡 بررسی دستی:\n" if manual else "📡 بررسی خودکار:\n"
     msg = prefix + msg
     msg += f"\n\n🕓 آخرین بررسی: {now_tehran()}\n📈 بازار: {'باز' if is_market_open() else 'بسته'}\n📡 منبع داده: {SELECTED_SOURCE}"
-    
-    if context:
-        context.bot.send_message(chat_id=CHAT_ID, text=msg)
-        if data:
-            send_excel_and_json(context.bot, CHAT_ID, data)
-    else:
-        bot.send_message(chat_id=CHAT_ID, text=msg)
-        if data:
-            send_excel_and_json(bot, CHAT_ID, data)
+    context.bot.send_message(chat_id=CHAT_ID, text=msg)
+    if data:
+        send_excel_and_json(context.bot, CHAT_ID, data)
 
 def button(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -207,7 +170,13 @@ def button(update: Update, context: CallbackContext):
 def auto_loop():
     while True:
         if AUTO_CHECK and is_market_open():
-            send_status()
+            msg, data = check_signal()
+            prefix = "📡 بررسی خودکار:\n"
+            msg = prefix + msg
+            msg += f"\n\n🕓 آخرین بررسی: {now_tehran()}\n📈 بازار: {'باز' if is_market_open() else 'بسته'}\n📡 منبع داده: {SELECTED_SOURCE}"
+            bot.send_message(chat_id=CHAT_ID, text=msg)
+            if data:
+                send_excel_and_json(bot, CHAT_ID, data)
         time.sleep(CHECK_INTERVAL)
 
 # -------------------- اجرا --------------------
