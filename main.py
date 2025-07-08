@@ -19,7 +19,7 @@ TOKEN = "7923807074:AAEz5TI4rIlZZ1M7UhEbfhjP7m3fgYY6weU"
 CHAT_ID = "52909831"
 RAHAVARD_TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
 BRSAPI_KEY = os.getenv("BRSAPI_KEY")
-
+print(f"BRSAPI_KEY: {BRSAPI_KEY}")
 # -------------------- تنظیمات --------------------
 CHECK_INTERVAL = 600
 ACTIVE_HOURS = (9, 12, 30)
@@ -44,6 +44,7 @@ def is_market_open():
 def get_data_brsapi():
     try:
         url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
+    headers = {"User-Agent": "Mozilla/5.0"}"
         response = requests.get(url)
         if response.status_code == 429:
             return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
