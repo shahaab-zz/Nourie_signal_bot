@@ -44,14 +44,14 @@ def is_market_open():
 def get_data_brsapi():
     try:
         url = f"https://brsapi.ir/Api/Tsetmc/AllSymbols.php?key={BRSAPI_KEY}&type=1"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url)
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers)
         if response.status_code == 429:
             return None, "⚠️ محدودیت مصرف روزانه brsapi رسیدید"
         return response.json(), None
     except:
         return None, "⛔ خطا در اتصال به brsapi"
-
+        
 def get_data_rahavard():
     try:
         url = "https://rahavard365.com/api/v2/chart/bars?countback=1&symbol=exchange.asset:1875:real_close:type0&resolution=D"
